@@ -1,0 +1,178 @@
+{
+  "basic_read": {
+    "group": "smoke",
+    "description": "读取项目目录并读取 main.py，验证三段式总结",
+    "prompt": "请先调用tool_docs查看list_dir和read_file文档，然后列出${PROJECT_ROOT}目录，并读取${PROJECT_ROOT}/main.py，最后给出三段式总结。",
+    "expected_tools": [
+      "tool_docs",
+      "list_dir",
+      "read_file"
+    ],
+    "max_tool_calls": 6,
+    "max_latency_ms": 45000,
+    "max_tokens": 1200,
+    "require_three_section_output": true
+  },
+  "write_then_verify": {
+    "group": "smoke",
+    "description": "创建文件并写入，再读取验证",
+    "prompt": "请先调用tool_docs查看create_path_or_file、write_file、read_file文档。创建${PROJECT_ROOT}/test_cli_flow.txt，写入三行A、B、C，再读取该文件并给出三段式总结。",
+    "expected_tools": [
+      "tool_docs",
+      "create_path_or_file",
+      "write_file",
+      "read_file"
+    ],
+    "max_tool_calls": 8,
+    "max_latency_ms": 60000,
+    "max_tokens": 1400,
+    "require_three_section_output": true
+  },
+  "write_replace_success": {
+    "group": "regression",
+    "description": "对已存在文件执行单条 replace，验证成功路径",
+    "prompt": "请调用 write_file 修改 ${PROJECT_ROOT}/test_write.txt 第1行为“测试write_file工具(已更新)”，然后读取文件确认。",
+    "expected_tools": [
+      "write_file",
+      "read_file"
+    ],
+    "max_tool_calls": 4,
+    "max_latency_ms": 30000,
+    "max_tokens": 1000,
+    "require_three_section_output": false,
+    "expect_write_ok": true
+  },
+  "write_insert_tail_success": {
+    "group": "regression",
+    "description": "在文件末尾 insert，验证插入成功",
+    "prompt": "请调用 write_file 在 ${PROJECT_ROOT}/test_write.txt 文件末尾追加一行“TAIL_LINE”，并读取确认。",
+    "expected_tools": [
+      "write_file",
+      "read_file"
+    ],
+    "max_tool_calls": 4,
+    "max_latency_ms": 30000,
+    "max_tokens": 1000,
+    "require_three_section_output": false,
+    "expect_write_ok": true
+  },
+  "write_delete_success": {
+    "group": "regression",
+    "description": "删除指定区间，验证 delete 正常执行",
+    "prompt": "请调用 write_file 删除 ${PROJECT_ROOT}/test_write.txt 的第1行，并读取确认。",
+    "expected_tools": [
+      "write_file",
+      "read_file"
+    ],
+    "max_tool_calls": 4,
+    "max_latency_ms": 30000,
+    "max_tokens": 1000,
+    "require_three_section_output": false,
+    "expect_write_ok": true
+  },
+  "write_invalid_json_failure": {
+    "group": "destructive",
+    "description": "edits 非 JSON，验证 invalid_arguments",
+    "prompt": "请调用 write_file(file_path='${PROJECT_ROOT}/test_write.txt', edits='not-json') 并返回错误类型。",
+    "expected_tools": [
+      "write_file"
+    ],
+    "max_tool_calls": 2,
+    "max_latency_ms": 20000,
+    "max_tokens": 800,
+    "require_three_section_output": false,
+    "expect_error_type": "invalid_arguments"
+  },
+  "write_delete_with_t_failure": {
+    "group": "destructive",
+    "description": "delete 携带 t，验证 invalid_arguments",
+    "prompt": "请调用 write_file 删除 ${PROJECT_ROOT}/test_write.txt 的第1行，但错误地附带 t 字段，并返回错误类型。",
+    "expected_tools": [
+      "write_file"
+    ],
+    "max_tool_calls": 2,
+    "max_latency_ms": 20000,
+    "max_tokens": 800,
+    "require_three_section_output": false,
+    "expect_error_type": "invalid_arguments"
+  },
+  "write_range_out_failure": {
+    "group": "destructive",
+    "description": "行号越界，验证 range_out_of_bounds",
+    "prompt": "请调用 write_file 修改 ${PROJECT_ROOT}/test_write.txt 的第9999行，并返回错误类型。",
+    "expected_tools": [
+      "write_file"
+    ],
+    "max_tool_calls": 2,
+    "max_latency_ms": 20000,
+    "max_tokens": 800,
+    "require_three_section_output": false,
+    "expect_error_type": "range_out_of_bounds"
+  },
+  "write_conflict_failure": {
+    "group": "destructive",
+    "description": "expected_old_lines 冲突，验证 conflict_detected",
+    "prompt": "请调用 write_file 修改 ${PROJECT_ROOT}/test_write.txt 第1行，expected_old_lines 传入明显错误内容，并返回错误类型。",
+    "expected_tools": [
+      "write_file"
+    ],
+    "max_tool_calls": 2,
+    "max_latency_ms": 20000,
+    "max_tokens": 800,
+    "require_three_section_output": false,
+    "expect_error_type": "conflict_detected"
+  },
+  "invalid_args_repair_chain": {
+    "group": "regression",
+    "description": "覆盖工具参数错误修复链路：先错参，再修正",
+    "prompt": "请先故意错误调用 read_file(path='${PROJECT_ROOT}/main.py')。如果返回 invalid_arguments，请改为 read_file(file_path='${PROJECT_ROOT}/main.py', start_line=1, end_line=10) 再总结。",
+    "expected_tools": [
+      "read_file"
+    ],
+    "min_tool_calls": 2,
+    "max_tool_calls": 6,
+    "max_latency_ms": 45000,
+    "max_tokens": 1200,
+    "require_three_section_output": false,
+    "expect_error_type": "invalid_arguments",
+    "debug": true
+  },
+  "tool_docs_soft_warning": {
+    "group": "regression",
+    "description": "覆盖 tool_docs 软提醒：未先读文档直接调工具",
+    "prompt": "不要调用tool_docs，直接调用 read_file 读取 ${PROJECT_ROOT}/main.py 的前5行，然后给出总结。",
+    "expected_tools": [
+      "read_file"
+    ],
+    "max_tool_calls": 4,
+    "max_latency_ms": 30000,
+    "max_tokens": 1000,
+    "require_three_section_output": false,
+    "expect_warning_contains": "建议先调用 tool_docs('read_file') 再使用该工具。",
+    "debug": true
+  },
+  "cmd_encoding_fallback": {
+    "group": "regression",
+    "description": "覆盖编码回退链路：显式传入非法编码后执行 cmd",
+    "prompt": "请调用 cmd(command='echo 编码回退测试', encoding='__invalid_encoding__') 并说明输出结果。",
+    "expected_tools": [
+      "cmd"
+    ],
+    "max_tool_calls": 3,
+    "max_latency_ms": 30000,
+    "max_tokens": 1000,
+    "require_three_section_output": false,
+    "debug": true
+  },
+  "multi_wiki_smoke": {
+    "group": "smoke",
+    "description": "覆盖多 Wiki 共存场景下的检索冒烟",
+    "prompt": "请基于可用信息简要说明当前项目的核心模块，不要编造。",
+    "expected_tools": [],
+    "max_tool_calls": 3,
+    "max_latency_ms": 30000,
+    "max_tokens": 1000,
+    "require_three_section_output": false,
+    "expect_intent_mode": "ask"
+  }
+}

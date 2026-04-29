@@ -1,0 +1,14 @@
+wxauto_logs
+wxauto文件下载
+dist/
+build/
+*.egg-info/
+msgs.txt
+__pycache__/
+*.ipynb
+*.bat
+.venv
+.env
+config.yaml
+@AutomationLog.txt
+wiki

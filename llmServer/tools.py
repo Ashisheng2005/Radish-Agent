@@ -186,3 +186,179 @@ tools_func = {
 if __name__ == '__main__':
     output = tool_docs('cmd,list_dir,read_file,write_file,create_path_or_file')
     print(output)
+
+# 生成 OpenAI tools JSON 格式
+tools_json = [
+    {
+        "type": "function",
+        "function": {
+            "name": "tool_docs",
+            "description": "获取一个或多个工具的使用文档，参数为工具名称，多个用英文逗号分隔",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "tools_name": {
+                        "type": "string",
+                        "description": "工具名称，多个用英文逗号分隔，例如 'cmd,list_dir'"
+                    }
+                },
+                "required": ["tools_name"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "cmd",
+            "description": "在系统 shell 中执行命令。首次尝试指定编码，失败时自动回退到多种编码重试",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "command": {
+                        "type": "string",
+                        "description": "要执行的 shell 命令"
+                    },
+                    "encoding": {
+                        "type": "string",
+                        "description": "命令输出的编码（如 utf-8、gbk），不指定则自动检测"
+                    }
+                },
+                "required": ["command"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_dir",
+            "description": "递归列出指定路径下的文件和目录树",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "要列出的目录路径"
+                    }
+                },
+                "required": ["path"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "read_file",
+            "description": "读取指定文件的内容，支持通过行号范围读取部分内容",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "file_path": {
+                        "type": "string",
+                        "description": "要读取的文件路径"
+                    },
+                    "start_line": {
+                        "type": "integer",
+                        "description": "起始行号（从1开始），不指定则从文件头开始"
+                    },
+                    "end_line": {
+                        "type": "integer",
+                        "description": "结束行号（包含），不指定则读到文件尾"
+                    },
+                    "line_number": {
+                        "type": "boolean",
+                        "description": "是否在每行前显示行号，默认 false"
+                    }
+                },
+                "required": ["file_path"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "write_file",
+            "description": "对文件进行增量编辑（edits JSON），支持 dry_run、return_patch 和冲突模式。优先使用 edits 协议",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "file_path": {
+                        "type": "string",
+                        "description": "要修改的文件路径"
+                    },
+                    "edits": {
+                        "type": "string",
+                        "description": "编辑操作的 JSON 字符串，格式: [{\"op\":\"insert|delete|replace\",\"s\":行号,\"t\":\"内容\"}]"
+                    },
+                    "encoding": {
+                        "type": "string",
+                        "description": "文件编码，默认 utf-8"
+                    },
+                    "request_id": {
+                        "type": "string",
+                        "description": "可选的请求追踪 ID"
+                    },
+                    "dry_run": {
+                        "type": "boolean",
+                        "description": "为 true 时仅预览变更，不实际写入"
+                    },
+                    "return_patch": {
+                        "type": "boolean",
+                        "description": "为 true 时返回 diff patch"
+                    },
+                    "conflict_mode": {
+                        "type": "string",
+                        "enum": ["strict", "soft"],
+                        "description": "冲突处理模式：strict 严格模式，soft 宽松模式"
+                    }
+                },
+                "required": ["file_path"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "raw_write_file",
+            "description": "将原始内容写入文件，会覆盖已有内容。自动创建父目录",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "file_path": {
+                        "type": "string",
+                        "description": "要写入的文件路径"
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "要写入文件的完整内容"
+                    },
+                    "encoding": {
+                        "type": "string",
+                        "description": "文件编码，默认 utf-8"
+                    }
+                },
+                "required": ["file_path", "content"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_path_or_file",
+            "description": "在指定路径创建文件或目录。创建文件需设置 is_file=True",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "要创建的路径"
+                    },
+                    "is_file": {
+                        "type": "boolean",
+                        "description": "True 创建文件，False（默认）创建目录"
+                    }
+                },
+                "required": ["path"]
+            }
+        }
+    }
+]

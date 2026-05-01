@@ -2,15 +2,18 @@ import argparse
 import traceback
 import time
 import sys
+from pathlib import Path
 
 try:
     from prompt_toolkit import PromptSession
     from prompt_toolkit.history import InMemoryHistory
     from prompt_toolkit.patch_stdout import patch_stdout
     from prompt_toolkit.formatted_text import ANSI
+    from prompt_toolkit.completion import Completer, Completion
 except Exception:
     PromptSession = None
     InMemoryHistory = None
+    Completer = Completion = None
 
     def patch_stdout():
         class _NullContext:
@@ -36,6 +39,8 @@ HELP_TEXT = """可用命令:
 /budget reset        重置预算为配置默认值
 /debug on|off        打开/关闭调试输出
 /usage on|off        打开/关闭每次回复后的使用统计显示
+/setup [refresh]     打开 LLM 提供商配置向导 / 刷新模型数据库缓存
+/switch [提供商]      切换当前模型（不指定则交互选择）
 /exit                退出
 """
 
@@ -81,6 +86,47 @@ def _mode_label(mode: str) -> str:
     return f"{color}{mode}\033[0m"
 
 
+COMMANDS = [
+    "/help", "/clear", "/mode", "/mode ask", "/mode plan", "/mode agent", "/mode auto",
+    "/budget", "/budget rounds", "/budget per_round", "/budget reset",
+    "/debug on", "/debug off",
+    "/usage on", "/usage off",
+    "/setup", "/setup refresh",
+    "/switch",
+    "/exit",
+]
+
+
+class CommandCompleter(Completer):
+    """当输入以 / 开头时，匹配并补全命令。"""
+
+    def __init__(self, commands: list[str]):
+        self.commands = commands
+
+    def get_completions(self, document, complete_event):
+        text = document.text_before_cursor
+        if not text.startswith("/"):
+            return
+        # 只补全第一个单词（不补全参数）
+        word = text.split()[-1] if text else ""
+        for cmd in self.commands:
+            if cmd.startswith(text):
+                yield Completion(cmd, start_position=-len(text))
+
+
+def _fmt_tokens(n: int) -> str:
+    """将 token 数格式化为可读的 K/M 单位。"""
+    if n >= 1_000_000:
+        whole = n // 1_000_000
+        frac = (n % 1_000_000) // 100_000
+        if frac:
+            return f"{whole}.{frac}M"
+        return f"{whole}M"
+    if n >= 1_000:
+        return f"{n // 1_000}K"
+    return str(n)
+
+
 def _build_prompt(bot) -> str:
     mode = _mode_label(bot.get_mode())
     debug = "-debug" if bot.debug else ""
@@ -116,13 +162,17 @@ def main():
 
     # print(f"{'-' * 10} Radish AI Console {'-' * 10}")
     # 输出粉色的欢迎信息，提示用户输入 /help 查看命令
-    print("{:^130}".format(f"\033[96m {bot.model} 1M \033[0m") )
+    print("{:^130}".format(f"\033[96m {bot.model} {_fmt_tokens(bot.get_max_token())} \033[0m") )
     print("{:^120}".format("\033[95mCiallo~ 输入 /help 查看命令，/exit 退出。\033[0m") )
     print("-" * 121)
 
     prompt_session = None
     if PromptSession is not None and InMemoryHistory is not None:
-        prompt_session = PromptSession(history=InMemoryHistory())
+        prompt_session = PromptSession(
+            history=InMemoryHistory(),
+            completer=CommandCompleter(COMMANDS) if Completer is not None else None,
+            complete_while_typing=True,
+        )
 
     with patch_stdout():
         while True:
@@ -224,6 +274,46 @@ def main():
                     print(f"usage 已{'开启' if enabled else '关闭'}。")
                 else:
                     print("用法: /usage on|off")
+                continue
+
+            if user_input.startswith("/setup"):
+                parts = user_input.split()
+                if len(parts) > 1 and parts[1] == "refresh":
+                    from provider_setup import refresh_models_cache
+                    refresh_models_cache()
+                    continue
+                from provider_setup import run_setup
+                config_path = Path(__file__).resolve().parents[1] / "config.yaml"
+                run_setup(str(config_path))
+                continue
+
+            if user_input.startswith("/switch"):
+                parts = user_input.split()
+                providers = bot.get_available_providers()
+                if len(parts) >= 2:
+                    target = parts[1]
+                    if target not in providers:
+                        print(f"提供商「{target}」未配置。可用: {', '.join(providers)}")
+                        continue
+                else:
+                    if not providers:
+                        print("没有已配置的提供商，请先使用 /setup 添加。")
+                        continue
+                    print("可用提供商:")
+                    for i, p in enumerate(providers, 1):
+                        print(f"  {i}. {p}")
+                    try:
+                        choice = input(f"请选择 (1-{len(providers)}): ").strip()
+                        target = providers[int(choice) - 1]
+                    except (ValueError, IndexError):
+                        print("无效选择。")
+                        continue
+                try:
+                    bot.switch_provider(target)
+                except ValueError as err:
+                    print(f"切换失败: {err}")
+                    continue
+                print(f"已切换到: {target} ({bot.model})")
                 continue
 
             try:

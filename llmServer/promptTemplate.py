@@ -60,9 +60,7 @@ Completion criteria:
 
 # 工具箱提示词 Toolsbox是一个字典，key是tool名称，alues是使用方法的描述，格式如下：
 # Toolbox = {'cmd': 'cmd工具可以执行命令行指令，参数是一个字符串，表示要执行的命令，例如：<tools>cmd('ls -la')</tools>'}
-toolboxPrompt = """\nYou can select the desired tool from the following options. The toolbox only contains brief descriptions:
-{Toolbox}
-Shared tool policy:
+toolboxPrompt = """\nShared tool policy:
 1. Use the minimum tool calls needed to finish the current mode objective.
 2. If path is clear and user asks to create file/directory, call `create_path_or_file` directly; do not call `list_dir` first.
 3. Use `list_dir` only when path or directory state is unclear and must be confirmed.
@@ -87,11 +85,6 @@ Mode-specific tool policy:
   * After successful write, output a brief completion message with key changes.
 
 The current directory location is `{current_dir}`. Please pay attention to path concatenation when using the tools.
-When you need to use a certain tool, please follow the following format:
-<tools>tool_name(arg1, key='value')</tools>
-Do not wrap all arguments as one JSON string literal.
-For long `write_file` content, split into multiple short calls.
-For large new file generation, prefer `cmd('cat > /path/to/file << \'EOF\' ... EOF')` once.
 If you don't need to use any tools, there is no need to reply with the relevant content.
 """
 

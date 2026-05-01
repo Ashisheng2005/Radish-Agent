@@ -17,32 +17,38 @@ class DeepSeek():
 
         )
         
-    def sendinfo(self, messages, temperature=0.7, max_tokens=4000):
-        # print(f"Sending messages to DeepSeek API: {messages}")
-        
-        response = self.client.chat.completions.create(
-            model=self.model,
-            messages=messages,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            stream=False,
-            extra_body={"thinking": {"type": "disabled"}}
-        )
-        # print(f"DeepSeek API response: {response}")
-        # content = (response.choices[0].message.content or "")
-        content = response.choices[0].message.content
-        # 统计token用量
-        # usage = getattr(response, "usage", None)
+    def sendinfo(self, messages, tools=None, tool_choice=None, temperature=0.7, max_tokens=4000):
+        kwargs = {
+            "model": self.model,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "stream": False,
+            "extra_body": {"thinking": {"type": "disabled"}},
+        }
+        if tools is not None:
+            kwargs["tools"] = tools
+        if tool_choice is not None:
+            kwargs["tool_choice"] = tool_choice
+
+        response = self.client.chat.completions.create(**kwargs)
+
+        choice = response.choices[0]
+        message = choice.message
+        content = message.content or ""
+        tool_calls = message.tool_calls if hasattr(message, "tool_calls") and message.tool_calls else None
         usage = response.usage if hasattr(response, "usage") else None
         usage_dict = usage.model_dump() if usage else None
 
         if self.debug:
-            finish_reason = response.choices[0].finish_reason
+            finish_reason = choice.finish_reason
             print(f"[deepseek.debug] finish_reason={finish_reason}")
             print(f"[deepseek.debug] content_repr={repr(content)}")
+            if tool_calls:
+                print(f"[deepseek.debug] tool_calls={[(tc.function.name, tc.function.arguments) for tc in tool_calls]}")
             if usage is not None:
                 print(f"[deepseek.debug] usage={usage}")
 
-        return content.strip(), usage_dict
+        return content.strip(), tool_calls, usage_dict
     
     

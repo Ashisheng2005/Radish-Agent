@@ -3,14 +3,12 @@ import ast
 import json
 import locale
 import hashlib
-import ast as py_ast
 import re
 import time
 from pathlib import Path
-# from openai import OpenAI
 
 from yamlConfig import Config
-from tools import tools_func, tools_title
+from tools import tools_func, tools_json, tool_docs
 from promptTemplate import (
     commonPrompt,
     initializationPrompt,
@@ -20,7 +18,6 @@ from promptTemplate import (
     wikiPrompt,
 )
 
-# from pollTools import *
 import pollTools as pts
 
 from deepseek import DeepSeek
@@ -40,67 +37,59 @@ class Polling():
         self.base_url = self.config.get_nested(llm, "BASE_URL", default="https://api.deepseek.com/v1")
         self.model = self.config.get_nested(llm, "MODEL", default="deepseek-chat")
         self.language = self.config.get_nested(llm, "LANGUAGE", default="Chinese")
+        self._llm_name = llm
         # Wiki/摘要相关配置，默认走轻量索引模式以控制输出体积。
-        self.wiki_mode = self.config.get_nested(llm, "WIKI_MODE", default="index_only")
-        self.summary_max_chars = self.config.get_nested(llm, "SUMMARY_MAX_CHARS", default=80)
-        self.summary_sample_lines = self.config.get_nested(llm, "SUMMARY_SAMPLE_LINES", default=6)
-        self.writefile_compact_default = self.config.get_nested(llm, "WRITEFILE_COMPACT_DEFAULT", default=True)
+        self.wiki_mode = self._cfg("WIKI_MODE", default="index_only")
+        self.summary_max_chars = self._cfg("SUMMARY_MAX_CHARS", default=80, cast=int)
+        self.summary_sample_lines = self._cfg("SUMMARY_SAMPLE_LINES", default=6, cast=int)
+        self.writefile_compact_default = self._cfg("WRITEFILE_COMPACT_DEFAULT", default=True, cast=bool)
         self.system_prompt = "You are a helpful assistant."
         self._cached_system_prompt = {}
         self.history_limit = 20
-        self.response_max_tokens_qa = int(self.config.get_nested(llm, "RESPONSE_MAX_TOKENS_QA", default=600))
-        self.response_max_tokens_tool = int(self.config.get_nested(llm, "RESPONSE_MAX_TOKENS_TOOL", default=1200))
-        self.response_max_tokens_code = int(self.config.get_nested(llm, "RESPONSE_MAX_TOKENS_CODE", default=1800))
-        self.response_max_tokens_large_write = int(
-            self.config.get_nested(llm, "RESPONSE_MAX_TOKENS_LARGE_WRITE", default=3200)
-        )
-        self.context_summary_max_chars = int(self.config.get_nested(llm, "CONTEXT_SUMMARY_MAX_CHARS", default=800))
-        self.tool_retry_limit = int(self.config.get_nested(llm, "TOOL_RETRY_LIMIT", default=1))
-        self.malformed_tool_call_retry_limit = int(
-            self.config.get_nested(llm, "MALFORMED_TOOL_CALL_RETRY_LIMIT", default=2)
-        )
-        self.wiki_retrieval_top_k = int(self.config.get_nested(llm, "WIKI_RETRIEVAL_TOP_K", default=5))
-        self.enable_wiki_retrieval = pts.parse_bool(self.config.get_nested(llm, "ENABLE_WIKI_RETRIEVAL", default=True))
-        self.metrics_enabled = pts.parse_bool(self.config.get_nested(llm, "METRICS_ENABLED", default=True))
-        self.enable_tool_docs_soft_check = pts.parse_bool(
-            self.config.get_nested(llm, "ENABLE_TOOL_DOCS_SOFT_CHECK", default=True)
-        )
-        self.default_max_tools_per_round = int(self.config.get_nested(llm, "MAX_TOOLS_PER_ROUND", default=3))
-        self.empty_reply_retry_limit = int(self.config.get_nested(llm, "EMPTY_REPLY_RETRY_LIMIT", default=2))
+        self.response_max_tokens_qa = self._cfg("RESPONSE_MAX_TOKENS_QA", default=600, cast=int)
+        self.response_max_tokens_tool = self._cfg("RESPONSE_MAX_TOKENS_TOOL", default=1200, cast=int)
+        self.response_max_tokens_code = self._cfg("RESPONSE_MAX_TOKENS_CODE", default=1800, cast=int)
+        self.response_max_tokens_large_write = self._cfg("RESPONSE_MAX_TOKENS_LARGE_WRITE", default=3200, cast=int)
+        self.context_summary_max_chars = self._cfg("CONTEXT_SUMMARY_MAX_CHARS", default=800, cast=int)
+        self.tool_retry_limit = self._cfg("TOOL_RETRY_LIMIT", default=1, cast=int)
+        self.malformed_tool_call_retry_limit = self._cfg("MALFORMED_TOOL_CALL_RETRY_LIMIT", default=2, cast=int)
+        self.wiki_retrieval_top_k = self._cfg("WIKI_RETRIEVAL_TOP_K", default=5, cast=int)
+        self.enable_wiki_retrieval = self._cfg("ENABLE_WIKI_RETRIEVAL", default=True, cast=bool)
+        self.metrics_enabled = self._cfg("METRICS_ENABLED", default=True, cast=bool)
+        self.enable_tool_docs_soft_check = self._cfg("ENABLE_TOOL_DOCS_SOFT_CHECK", default=True, cast=bool)
+        self.default_max_tools_per_round = self._cfg("MAX_TOOLS_PER_ROUND", default=3, cast=int)
+        self.empty_reply_retry_limit = self._cfg("EMPTY_REPLY_RETRY_LIMIT", default=2, cast=int)
         self.read_file_allowlist = {
             x.strip().lower()
-            for x in str(self.config.get_nested(llm, "READ_FILE_ALLOWLIST", default="")).split(",")
+            for x in str(self._cfg("READ_FILE_ALLOWLIST", default="")).split(",")
             if x.strip()
         }
-        self.project_wiki_json_path = self.config.get_nested(llm, "PROJECT_WIKI_JSON_PATH", default="")
+        self.project_wiki_json_path = self._cfg("PROJECT_WIKI_JSON_PATH", default="")
         self.metrics_file = str(
-            self.config.get_nested(
-                llm,
+            self._cfg(
                 "METRICS_FILE",
                 default=str(Path(__file__).resolve().parents[1] / "runtime_metrics.jsonl"),
             )
         )
         # 将模型输出 token 上限和最终回复字符上限分离，避免语义混用。
-        self.max_output_chars_qa = int(self.config.get_nested(llm, "MAX_OUTPUT_CHARS_QA", default=1200))
-        self.max_output_chars_tool = int(self.config.get_nested(llm, "MAX_OUTPUT_CHARS_TOOL", default=1800))
-        self.max_output_chars_code = int(self.config.get_nested(llm, "MAX_OUTPUT_CHARS_CODE", default=2800))
-        self.tool_result_max_chars_default = int(self.config.get_nested(llm, "TOOL_RESULT_MAX_CHARS", default=1000))
+        self.max_output_chars_qa = self._cfg("MAX_OUTPUT_CHARS_QA", default=1200, cast=int)
+        self.max_output_chars_tool = self._cfg("MAX_OUTPUT_CHARS_TOOL", default=1800, cast=int)
+        self.max_output_chars_code = self._cfg("MAX_OUTPUT_CHARS_CODE", default=2800, cast=int)
+        self.tool_result_max_chars_default = self._cfg("TOOL_RESULT_MAX_CHARS", default=1000, cast=int)
         self.tool_result_max_chars_map = {
-            "read_file": int(self.config.get_nested(llm, "READ_FILE_RESULT_MAX_CHARS", default=1200)),
-            "list_dir": int(self.config.get_nested(llm, "LIST_DIR_RESULT_MAX_CHARS", default=900)),
-            "cmd": int(self.config.get_nested(llm, "CMD_RESULT_MAX_CHARS", default=900)),
-            "tool_docs": int(self.config.get_nested(llm, "TOOL_DOCS_RESULT_MAX_CHARS", default=1200)),
-            "write_file": int(self.config.get_nested(llm, "WRITE_FILE_RESULT_MAX_CHARS", default=800)),
+            "read_file": self._cfg("READ_FILE_RESULT_MAX_CHARS", default=1200, cast=int),
+            "list_dir": self._cfg("LIST_DIR_RESULT_MAX_CHARS", default=900, cast=int),
+            "cmd": self._cfg("CMD_RESULT_MAX_CHARS", default=900, cast=int),
+            "tool_docs": self._cfg("TOOL_DOCS_RESULT_MAX_CHARS", default=1200, cast=int),
+            "write_file": self._cfg("WRITE_FILE_RESULT_MAX_CHARS", default=800, cast=int),
         }
-        # print(f"使用模型: {llm}，API_KEY: {'已设置' if self.api_key else '未设置'}，BASE_URL: {self.base_url}，MODEL: {self.model}，LANGUAGE: {self.language}")
-        
-
+        self.cmd_encoding = self._cfg("CMD_ENCODING", default=locale.getpreferredencoding(False) or "utf-8")
         # 保存每一轮的token使用情况，供 /status 查询和调试分析。
         self.metrics_totals = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
         self.metrics_rounds = []   # 每轮的明细列表
 
         # 初始化客户端
-        self.client = llmServer[llm](
+        self.client = llmServer.get(llm, DeepSeek)(
             api_key=self.api_key, 
             base_url=self.base_url, 
             model=self.model, 
@@ -111,8 +100,7 @@ class Polling():
         # 只保存“真正参与对话”的消息，避免把大段模板重复塞进上下文。
         self.context = []
         self.context_summary = ""
-        self.cmd_encoding = self.config.get_nested(llm, "CMD_ENCODING", default=locale.getpreferredencoding(False) or "utf-8")
-        self.default_max_tool_rounds = int(self.config.get_nested(llm, "MAX_TOOL_ROUNDS", default=10))
+        self.default_max_tool_rounds = self._cfg("MAX_TOOL_ROUNDS", default=10, cast=int)
 
         # 最大工具调用轮数和每轮最大工具调用数可以通过 /budget 命令动态调整，默认值从配置文件读取。
         self.max_tools_per_round = self.default_max_tools_per_round
@@ -131,16 +119,22 @@ class Polling():
         if self.api_key is None:
             raise ValueError("未设置 API 密钥，请在环境变量中配置 OPENAI_API_KEY 或 DEEPSEEK_API_KEY，或者在初始化时传入 api_key 参数。")
 
-        # 预计算所有 mode 的 system_prompt，确保每次请求的 messages 开头部分完全一致
-        tools_doc = self._format_tools_docs()
         for mode_name in ["ask", "plan", "agent"]:
             mode_prompt = modePromptMap.get(mode_name, "")
             self._cached_system_prompt[mode_name] = systemPrefixPrompt.format(
                 common_prompt=commonPrompt,
                 task_mode=mode_name,
                 mode_prompt=mode_prompt,
-                tools_prompt=toolboxPrompt.format(Toolbox=tools_doc),
+                tools_prompt=toolboxPrompt.format(current_dir=os.getcwd()),
             )
+
+    def _cfg(self, key: str, default=None, cast=None):
+        val = self.config.get_nested(self._llm_name, key, default=default)
+        if cast == int:
+            return int(val)
+        if cast == bool:
+            return pts.parse_bool(val)
+        return val
 
     def clear_context(self):
         """清除对话上下文"""
@@ -187,6 +181,62 @@ class Polling():
             },
         }
 
+    def get_max_token(self) -> int:
+        """获取当前提供商配置的 MAX_TOKEN。"""
+        return self._cfg("MAX_TOKEN", default=128000, cast=int)
+
+    def get_available_providers(self) -> list[str]:
+        """返回 config.yaml 中所有已配置的提供商名称。"""
+        config = self.config.config
+        exclude = {"MODEL_SELECT"}
+        return [k for k in config if isinstance(config.get(k), dict) and k not in exclude]
+
+    def switch_provider(self, provider_name: str) -> str:
+        """切换到另一个已配置的提供商，重新初始化客户端。"""
+        config = self.config.config
+        provider = config.get(provider_name)
+        if not provider or not isinstance(provider, dict):
+            raise ValueError(f"提供商「{provider_name}」未在 config.yaml 中配置")
+
+        api_key = provider.get("API_KEY")
+        base_url = provider.get("BASE_URL")
+        model = provider.get("MODEL")
+        language = provider.get("LANGUAGE", "Chinese")
+
+        if not all([api_key, base_url, model]):
+            raise ValueError(f"提供商「{provider_name}」配置不完整（缺少 API_KEY/BASE_URL/MODEL）")
+
+        # 更新实例状态
+        self._llm_name = provider_name
+        self.api_key = api_key
+        self.base_url = base_url
+        self.model = model
+        self.language = language
+
+        # 重新读取该提供商的各项配置
+        self.response_max_tokens_qa = self._cfg("RESPONSE_MAX_TOKENS_QA", default=600, cast=int)
+        self.response_max_tokens_tool = self._cfg("RESPONSE_MAX_TOKENS_TOOL", default=1200, cast=int)
+        self.response_max_tokens_code = self._cfg("RESPONSE_MAX_TOKENS_CODE", default=1800, cast=int)
+        self.response_max_tokens_large_write = self._cfg("RESPONSE_MAX_TOKENS_LARGE_WRITE", default=3200, cast=int)
+
+        # 重新初始化客户端
+        self.client = llmServer.get(provider_name, DeepSeek)(
+            api_key=self.api_key,
+            base_url=self.base_url,
+            model=self.model,
+            language=self.language,
+            debug=self.debug,
+        )
+
+        # 持久化 MODEL_SELECT
+        config_path = Path(__file__).resolve().parents[1] / "config.yaml"
+        config["MODEL_SELECT"] = {"model_name": provider_name}
+        import yaml
+        with open(config_path, "w", encoding="utf-8") as f:
+            yaml.dump(config, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+
+        return provider_name
+
     def _log(self, message: str, level: str = "info"):
         """统一日志出口：默认静默，debug 模式显示工具链细节。"""
         if level == "debug" and not self.debug:
@@ -198,7 +248,6 @@ class Polling():
     def _show_tool_indicator(self, tool_name: str):
         if self.debug:
             return
-        # print(f"tools:{tool_name}")
 
     def _emit_status(self, message: str):
         """向外层 console 发状态信号。"""
@@ -218,13 +267,6 @@ class Polling():
             return False
         return any(p in normalized for p in patterns)
 
-    def _format_tools_docs(self):
-        """把工具字典渲染成稳定的文本，避免把 dict 原样塞给模型。"""
-        lines = []
-        for tool_name, tool_desc in tools_title.items():
-            lines.append(f"- {tool_name}: {tool_desc}")
-        return "\n".join(lines)
-    
     def _build_messages(self, prompt=None, intent_mode=None):
         """构建消息列表：使用缓存的 system_prompt 和历史对话；必要时再附加当前用户输入。"""
         messages = []
@@ -251,10 +293,7 @@ class Polling():
             ),
             task_mode=intent_mode,
             mode_prompt=modePromptMap.get(intent_mode, modePromptMap["ask"]),
-            tools_prompt=toolboxPrompt.format(
-                Toolbox=self._format_tools_docs(),
-                current_dir=os.getcwd()
-            ),
+            tools_prompt=toolboxPrompt.format(current_dir=os.getcwd()),
             question=f"{prompt}{extra_context}{write_hint}",
         )
     
@@ -376,7 +415,7 @@ class Polling():
         if not (text.startswith("[") and text.endswith("]")):
             return value
         try:
-            parsed = py_ast.literal_eval(text)
+            parsed = ast.literal_eval(text)
         except Exception:
             return value
         if isinstance(parsed, list) and all(isinstance(x, str) for x in parsed):
@@ -584,14 +623,12 @@ class Polling():
         for _ in range(effective_max_tool_rounds):
             tool_round_count += 1
 
-            # print(f"第 {_ + 1} 轮模型交互，当前上下文消息: {messages}\n\n")
-
-            reply, usage_dict = self.client.sendinfo(
+            reply, reply_tool_calls, usage_dict = self.client.sendinfo(
                 messages=messages,
+                tools=tools_json,
                 temperature=temperature,
                 max_tokens=min(max_tokens, selected_max_tokens),
             )
-            # reply = response.choices[0].message.content.strip()
 
             # 解析并累加 token usage（兼容 provider 返回的 usage dict）
             try:
@@ -621,65 +658,65 @@ class Polling():
             self._log(f"[polling.debug] raw_reply_repr={repr(reply)}", level="debug")
             self._log(f"{reply}\n", level="debug")
 
-            if pts.is_effectively_empty_reply(reply):
-                empty_reply_count += 1
-                if empty_reply_retries < self.empty_reply_retry_limit:
-                    empty_reply_retries += 1
-                    self._log(
-                        f"模型返回空结果，正在重试生成最终回复... ({empty_reply_retries}/{self.empty_reply_retry_limit})",
-                        level="info",
-                    )
-                    self._emit_status("模型正在重试生成最终回复...")
-                    self._log(
-                        f"[polling.debug] empty-reply retry triggered at round={tool_round_count}",
-                        level="debug",
-                    )
-                    self.context.append(
-                        {
-                            "role": "user",
-                            "content": (
-                                "请立即输出非空最终回复或合法工具调用，禁止返回空内容。"
-                                "如果你已经读取了关键文件，请直接给出可执行建议。"
-                            ),
-                        }
-                    )
-                messages = self._build_messages(intent_mode=self.last_intent_mode)
-                    continue
-                fallback = (
-                    "模型暂时没有返回有效内容。建议你把目标拆成两步：先确认要修改的文件与范围，再要求输出具体改造步骤。"
-                    if self.last_intent_mode == "agent"
-                    else "模型暂时没有返回有效内容，请稍后重试。"
-                )
-                return fallback
+            # ---- 工具调用检测：原生 tools > XML fallback ----
+            native_calls_parsed = []
+            if reply_tool_calls:
+                for tc in reply_tool_calls:
+                    native_calls_parsed.append({
+                        "id": tc.id,
+                        "name": tc.function.name,
+                        "arguments": tc.function.arguments,
+                    })
 
-            # 把模型输出写回上下文，后续轮次才能看到它做过什么判断。
-            self.context.append({"role": "assistant", "content": reply})
-            self._maybe_update_context_summary()
+            xml_tool_calls = pts.parse_tool_calls(reply or "") if not native_calls_parsed else []
 
-            tool_calls = pts.parse_tool_calls(reply)
-            if "<tools>" in str(reply) and not tool_calls:
-                # 剔出文端中非工具调用的部分，并输出
-                print(reply.split("<tools>")[0].strip())
-
-                malformed_tool_call_retries += 1
-                if malformed_tool_call_retries > self.malformed_tool_call_retry_limit:
-                    return (
-                        "检测到连续工具调用格式异常（疑似长参数截断）。"
-                        "请缩小单次 write_file 内容并分块写入，或提高 RESPONSE_MAX_TOKENS_CODE/TOOL 后重试。"
-                    )
-                self.context.append(
+            # ---- 构建 assistant 消息 ----
+            assistant_entry = {"role": "assistant", "content": reply}
+            if native_calls_parsed:
+                assistant_entry["tool_calls"] = [
                     {
-                        "role": "user",
-                        "content": (
-                            "工具调用格式错误：请严格使用 `<tools>tool_name(args)</tools>`，"
-                            "仅输出一个合法工具调用，不要包含解释文本。"
-                            "如果 write_file 内容较长，请分块写入，每次只提交一个较短的工具调用。"
-                        ),
+                        "id": nc["id"],
+                        "type": "function",
+                        "function": {"name": nc["name"], "arguments": nc["arguments"]},
                     }
-                )
-                messages = self._build_messages(intent_mode=self.last_intent_mode)
-                continue
-            if not tool_calls:
+                    for nc in native_calls_parsed
+                ]
+
+            # ---- 无任何工具调用 => 最终回复 ----
+            if not native_calls_parsed and not xml_tool_calls:
+                if pts.is_effectively_empty_reply(reply):
+                    empty_reply_count += 1
+                    if empty_reply_retries < self.empty_reply_retry_limit:
+                        empty_reply_retries += 1
+                        self._log(
+                            f"模型返回空结果，正在重试生成最终回复... ({empty_reply_retries}/{self.empty_reply_retry_limit})",
+                            level="info",
+                        )
+                        self._emit_status("模型正在重试生成最终回复...")
+                        self._log(
+                            f"[polling.debug] empty-reply retry triggered at round={tool_round_count}",
+                            level="debug",
+                        )
+                        self.context.append(
+                            {
+                                "role": "user",
+                                "content": (
+                                    "请立即输出非空最终回复或合法工具调用，禁止返回空内容。"
+                                    "如果你已经读取了关键文件，请直接给出可执行建议。"
+                                ),
+                            }
+                        )
+                        messages = self._build_messages(intent_mode=self.last_intent_mode)
+                        continue
+                    fallback = (
+                        "模型暂时没有返回有效内容。建议你把目标拆成两步：先确认要修改的文件与范围，再要求输出具体改造步骤。"
+                        if self.last_intent_mode == "agent"
+                        else "模型暂时没有返回有效内容，请稍后重试。"
+                    )
+                    return fallback
+
+                self.context.append(assistant_entry)
+                self._maybe_update_context_summary()
                 final_reply = self._postprocess_reply(reply, selected_max_output_chars, mode=self.last_intent_mode)
                 self._record_metrics(
                     {
@@ -702,17 +739,69 @@ class Polling():
                 )
                 return final_reply
 
-            # print(f"调用工具: {[call['name'] for call in tool_calls]}")
-            # 把工具调用结果回填给模型，进入下一轮继续生成最终回复。
-            for tool_call in tool_calls[: effective_max_tools_per_round]:
+            # ---- 格式异常的 XML 工具调用 ----
+            if not native_calls_parsed and "<tools>" in str(reply) and not xml_tool_calls:
+                print(reply.split("<tools>")[0].strip())
+
+                malformed_tool_call_retries += 1
+                if malformed_tool_call_retries > self.malformed_tool_call_retry_limit:
+                    return (
+                        "检测到连续工具调用格式异常（疑似长参数截断）。"
+                        "请缩小单次 write_file 内容并分块写入，或提高 RESPONSE_MAX_TOKENS_CODE/TOOL 后重试。"
+                    )
+                self.context.append(
+                    {
+                        "role": "user",
+                        "content": (
+                            "工具调用格式错误：请严格使用 `<tools>tool_name(args)</tools>`，"
+                            "仅输出一个合法工具调用，不要包含解释文本。"
+                            "如果 write_file 内容较长，请分块写入，每次只提交一个较短的工具调用。"
+                        ),
+                    }
+                )
+                messages = self._build_messages(intent_mode=self.last_intent_mode)
+                continue
+
+            # ---- 有工具调用: 构建统一 execution_list ----
+            self.context.append(assistant_entry)
+            self._maybe_update_context_summary()
+
+            if native_calls_parsed:
+                execution_list = []
+                for nc in native_calls_parsed:
+                    try:
+                        kwargs = json.loads(nc["arguments"])
+                    except json.JSONDecodeError:
+                        kwargs = {}
+                    execution_list.append({
+                        "id": nc["id"],
+                        "name": nc["name"],
+                        "args": nc["arguments"],
+                        "kwargs": kwargs,
+                        "is_native": True,
+                    })
+            else:
+                execution_list = [
+                    {
+                        "id": f"call_xml_{i}",
+                        "name": xc["name"],
+                        "args": xc["args"],
+                        "kwargs": None,
+                        "is_native": False,
+                    }
+                    for i, xc in enumerate(xml_tool_calls)
+                ]
+
+            for call_info in execution_list[:effective_max_tools_per_round]:
+                tool_name = call_info["name"]
                 total_tool_calls += 1
-                self._show_tool_indicator(tool_call["name"])
-                cache_key = f"{tool_call['name']}::{tool_call['args']}"
+                self._show_tool_indicator(tool_name)
+                cache_key = f"{tool_name}::{call_info['args']}"
 
                 if (
                     profile_name == "large_write"
                     and large_write_cmd_succeeded
-                    and tool_call["name"] == "write_file"
+                    and tool_name == "write_file"
                 ):
                     tool_result = {
                         "ok": False,
@@ -721,24 +810,9 @@ class Polling():
                         "error": "大文件任务中已通过 cmd/heredoc 成功写入，禁止继续混用 write_file。",
                         "hint": "请改用 read_file 验证文件内容并直接给出总结。",
                     }
-                    self.context.append(
-                        {
-                            "role": "user",
-                            "content": (
-                                "工具返回结果(JSON): "
-                                + json.dumps(
-                                    {
-                                        "tool": tool_call["name"],
-                                        "args": tool_call["args"],
-                                        "result": tool_result,
-                                    },
-                                    ensure_ascii=False,
-                                )
-                            ),
-                        }
-                    )
+                    self._append_tool_result(call_info, tool_result)
                     total_tool_result_chars += len(json.dumps(tool_result, ensure_ascii=False))
-                    self._log(f"工具结果: {tool_call['name']} -> \n{tool_result}", level="debug")
+                    self._log(f"工具结果: {tool_name} -> \n{tool_result}", level="debug")
                     continue
 
                 if cache_key in round_tool_cache:
@@ -746,19 +820,30 @@ class Polling():
                     tool_result = dict(round_tool_cache[cache_key])
                     tool_result["from_cache"] = True
                 else:
-                    tool_result = self._run_tool(tool_call["name"], tool_call["args"])
+                    if call_info["is_native"]:
+                        tool_result = self._run_tool_from_native(tool_name, call_info["kwargs"])
+                    else:
+                        tool_result = self._run_tool(tool_name, call_info["args"])
                     round_tool_cache[cache_key] = dict(tool_result) if isinstance(tool_result, dict) else {"ok": True, "result": tool_result}
 
                 if (
                     profile_name == "large_write"
-                    and tool_call["name"] == "cmd"
+                    and tool_name == "cmd"
                     and isinstance(tool_result, dict)
                     and tool_result.get("ok") is True
-                    and pts.looks_like_heredoc_write(tool_call.get("args", ""))
+                    and pts.looks_like_heredoc_write(str(call_info.get("args", "")))
                 ):
                     large_write_cmd_succeeded = True
-                if tool_call["name"] == "tool_docs":
-                    per_round_docs_seen.update(self._extract_tool_names_from_docs_args(tool_call["args"]))
+
+                if tool_name == "tool_docs":
+                    if call_info["is_native"]:
+                        per_round_docs_seen.update(
+                            self._extract_tool_names_from_args(call_info["args"], is_native=True)
+                        )
+                    else:
+                        per_round_docs_seen.update(
+                            self._extract_tool_names_from_args(call_info["args"], is_native=False)
+                        )
 
                 # 参数错误时不重复同参重试，而是让模型基于错误信息修正参数再调用。
                 if (
@@ -779,32 +864,17 @@ class Polling():
                     )
                     break
 
-                if self.enable_tool_docs_soft_check and tool_call["name"] not in {"tool_docs"}:
-                    if tool_call["name"] not in per_round_docs_seen:
+                if self.enable_tool_docs_soft_check and tool_name not in {"tool_docs"}:
+                    if tool_name not in per_round_docs_seen:
                         if isinstance(tool_result, dict):
                             tool_result.setdefault("warnings", [])
                             tool_result["warnings"].append(
-                                f"建议先调用 tool_docs('{tool_call['name']}') 再使用该工具。"
+                                f"建议先调用 tool_docs('{tool_name}') 再使用该工具。"
                             )
 
-                self.context.append(
-                    {
-                        "role": "user",
-                        "content": (
-                            "工具返回结果(JSON): "
-                            + json.dumps(
-                                {
-                                    "tool": tool_call["name"],
-                                    "args": tool_call["args"],
-                                    "result": tool_result,
-                                },
-                                ensure_ascii=False,
-                            )
-                        ),
-                    }
-                )
+                self._append_tool_result(call_info, tool_result)
                 total_tool_result_chars += len(json.dumps(tool_result, ensure_ascii=False))
-                self._log(f"工具结果: {tool_call['name']} -> \n{tool_result}", level="debug")
+                self._log(f"工具结果: {tool_name} -> \n{tool_result}", level="debug")
 
                 messages = self._build_messages(intent_mode=self.last_intent_mode)
             per_round_docs_seen.clear()
@@ -829,8 +899,14 @@ class Polling():
         )
         return end_msg
 
-    def _extract_tool_names_from_docs_args(self, arg_text: str):
-        """从 tool_docs 参数中提取工具名列表。"""
+    def _extract_tool_names_from_args(self, arg_text: str, is_native: bool = False):
+        if is_native:
+            try:
+                kwargs = json.loads(arg_text)
+                tools_str = kwargs.get("tools_name", "")
+                return {x.strip() for x in tools_str.split(",") if x.strip()}
+            except (json.JSONDecodeError, AttributeError):
+                return set()
         try:
             args, _ = self._parse_tool_arguments(arg_text)
             if not args:
@@ -840,9 +916,68 @@ class Polling():
         except Exception:
             return set()
 
+    def _run_tool_from_native(self, tool_name, kwargs_dict):
+        """从原生 API function calling 的 JSON dict 参数执行工具。"""
+        if tool_name not in tools_func:
+            return {"ok": False, "tool": tool_name, "error_type": "tool_not_found",
+                    "message": f"工具不存在: {tool_name}"}
+
+        tool = tools_func[tool_name]
+
+        if tool_name == "tool_docs":
+            tools_name_str = kwargs_dict.get("tools_name", "")
+            try:
+                return self._normalize_tool_result(tool_name, tool_docs(tools_name_str))
+            except Exception as err:
+                return self._normalize_tool_result(
+                    tool_name,
+                    {"ok": False, "tool": tool_name, "error_type": "tool_runtime_error", "error": str(err)},
+                )
+
+        _, coerced_kwargs = pts.coerce_tool_arguments(tool_name, (), kwargs_dict)
+
+        if tool_name == "read_file":
+            candidate_path = coerced_kwargs.get("file_path", "")
+            if self._is_sensitive_path(candidate_path):
+                return self._normalize_tool_result(
+                    tool_name,
+                    {
+                        "ok": False,
+                        "tool": tool_name,
+                        "error_type": "sensitive_file_blocked",
+                        "error": f"安全策略阻止读取敏感文件: {candidate_path}",
+                    },
+                )
+
+        try:
+            return self._normalize_tool_result(tool_name, tool(**coerced_kwargs))
+        except Exception as err:
+            return self._normalize_tool_result(
+                tool_name,
+                {"ok": False, "tool": tool_name, "error_type": "tool_runtime_error", "error": str(err)},
+            )
+
+    def _append_tool_result(self, call_info: dict, tool_result):
+        """将工具执行结果追加到上下文。原生调用用 tool role，XML fallback 用 user role。"""
+        result_json = json.dumps({
+            "tool": call_info["name"],
+            "args": call_info["args"],
+            "result": tool_result,
+        }, ensure_ascii=False)
+
+        if call_info.get("is_native"):
+            self.context.append({
+                "role": "tool",
+                "tool_call_id": call_info["id"],
+                "content": result_json,
+            })
+        else:
+            self.context.append({
+                "role": "user",
+                "content": f"工具返回结果(JSON): {result_json}",
+            })
+
     
 if __name__ == "__main__":
     polling = Polling()
-
-    # print('project wiki successful!')
     polling.sendinfo("简要分析一下这个项目，并给出优化建议")

@@ -5,4 +5,5 @@ source "$SCRIPT_DIR/.venv/bin/activate" 2>/dev/null || true
 # 切换到当前执行目录（模型目录）
 cd "$(pwd)"
 # 启动 console.py，不传 --model-dir 参数
-"$SCRIPT_DIR/.venv/bin/python" "$SCRIPT_DIR/llmServer/console.py" "$@"
+python "$SCRIPT_DIR/llmServer/console.py" "$@"
+# "$SCRIPT_DIR/.venv/bin/python" "$SCRIPT_DIR/llmServer/console.py" "$@"

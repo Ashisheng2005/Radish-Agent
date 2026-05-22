@@ -1,4 +1,4 @@
-# RadishWeixinBot
+# Radish-Agent
 开发中。。。。
 
 ## Tooling 现状（2026-04）
@@ -51,8 +51,8 @@ write_file(
 示例命令：
 
 ```bash
-/home/repork/project/RadishWeixinBot/.venv/bin/python llmServer/test_flow_cli.py list-cases
-/home/repork/project/RadishWeixinBot/.venv/bin/python llmServer/test_flow_cli.py run --group smoke
-/home/repork/project/RadishWeixinBot/.venv/bin/python llmServer/test_flow_cli.py run --group regression
-/home/repork/project/RadishWeixinBot/.venv/bin/python llmServer/test_flow_cli.py run --group destructive
+python llmServer/test_flow_cli.py list-cases
+python llmServer/test_flow_cli.py run --group smoke
+python llmServer/test_flow_cli.py run --group regression
+python llmServer/test_flow_cli.py run --group destructive
 ```

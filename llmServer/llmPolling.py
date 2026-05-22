@@ -8,7 +8,9 @@ import time
 from pathlib import Path
 
 from yamlConfig import Config
-from tools import tools_func, tools_json, tool_docs
+from tools import tools_func, tools_json, tool_docs, init_code_graph, sync_read_file_allowlist
+from code_graph.gate import SymbolReadGate
+from code_graph.store import CodeGraphStore
 from promptTemplate import (
     commonPrompt,
     initializationPrompt,
@@ -65,6 +67,10 @@ class Polling():
             if x.strip()
         }
         self.project_wiki_json_path = self._cfg("PROJECT_WIKI_JSON_PATH", default="")
+        self.project_code_graph_json_path = self._cfg("PROJECT_CODE_GRAPH_JSON_PATH", default="")
+        self.project_path = os.path.abspath(os.getcwd())
+        self._symbol_gate_id = f"polling_{id(self)}"
+        SymbolReadGate.set_active_gate_id(self._symbol_gate_id)
         self.metrics_file = str(
             self._cfg(
                 "METRICS_FILE",
@@ -82,7 +88,13 @@ class Polling():
             "cmd": self._cfg("CMD_RESULT_MAX_CHARS", default=900, cast=int),
             "tool_docs": self._cfg("TOOL_DOCS_RESULT_MAX_CHARS", default=1200, cast=int),
             "write_file": self._cfg("WRITE_FILE_RESULT_MAX_CHARS", default=800, cast=int),
+            "search_symbols": self._cfg("SEARCH_SYMBOLS_RESULT_MAX_CHARS", default=1200, cast=int),
+            "read_symbol": self._cfg("READ_SYMBOL_RESULT_MAX_CHARS", default=2400, cast=int),
+            "write_symbol": self._cfg("WRITE_SYMBOL_RESULT_MAX_CHARS", default=1000, cast=int),
+            "list_symbol_callers": self._cfg("LIST_SYMBOL_CALLERS_RESULT_MAX_CHARS", default=1500, cast=int),
+            "grep_code": self._cfg("GREP_CODE_RESULT_MAX_CHARS", default=2000, cast=int),
         }
+        sync_read_file_allowlist(self.read_file_allowlist)
         self.cmd_encoding = self._cfg("CMD_ENCODING", default=locale.getpreferredencoding(False) or "utf-8")
         # 保存每一轮的token使用情况，供 /status 查询和调试分析。
         self.metrics_totals = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
@@ -125,8 +137,73 @@ class Polling():
                 common_prompt=commonPrompt,
                 task_mode=mode_name,
                 mode_prompt=mode_prompt,
-                tools_prompt=toolboxPrompt.format(current_dir=os.getcwd()),
+                tools_prompt=toolboxPrompt.format(current_dir=self.project_path),
             )
+
+        self._code_graph_status = self.refresh_code_graph()
+
+    def refresh_code_graph(self, project_path=None):
+        """绑定项目路径并加载 CODE_GRAPH；供 console 启动与 /graph 命令调用。"""
+        if project_path:
+            self.project_path = os.path.abspath(project_path)
+        init_code_graph(
+            project_path=self.project_path,
+            graph_path=self.project_code_graph_json_path,
+        )
+        resolved = self._resolve_code_graph_json_path()
+        store = CodeGraphStore(self.project_path)
+        status = {
+            "loaded": False,
+            "path": str(resolved) if resolved else store.graph_path,
+            "project_path": self.project_path,
+            "node_count": 0,
+            "edge_count": 0,
+            "parser_backend": "",
+            "error": "",
+        }
+        if resolved is None or not resolved.exists():
+            status["error"] = "未找到 CODE_GRAPH.json，请执行 /graph build"
+            self._code_graph_status = status
+            return status
+
+        try:
+            from code_graph.models import CodeGraphIndex
+
+            graph = CodeGraphIndex.from_dict(json.loads(resolved.read_text(encoding="utf-8")))
+            status.update(
+                {
+                    "loaded": True,
+                    "path": str(resolved),
+                    "node_count": graph.stats.get("node_count", len(graph.nodes)),
+                    "edge_count": graph.stats.get("edge_count", len(graph.edges)),
+                    "parser_backend": graph.parser_backend,
+                }
+            )
+        except Exception as err:
+            status["error"] = str(err)
+        self._code_graph_status = status
+        return status
+
+    def build_code_graph(self, wiki_root=None):
+        """为当前 project_path 构建代码图索引。"""
+        from code_graph.indexer import CodeGraphIndexer
+
+        t0 = time.time()
+        index = CodeGraphIndexer(self.project_path, wiki_root=wiki_root).execute()
+        status = self.refresh_code_graph()
+        status["built"] = True
+        status["elapsed_sec"] = round(time.time() - t0, 2)
+        status["node_count"] = index.stats.get("node_count", len(index.nodes))
+        status["edge_count"] = index.stats.get("edge_count", len(index.edges))
+        status["parser_backend"] = index.parser_backend
+        self._code_graph_status = status
+        return status
+
+    def get_code_graph_status(self):
+        return getattr(self, "_code_graph_status", {}) or self.refresh_code_graph()
+
+    def clear_symbol_read_gate(self):
+        SymbolReadGate.get(self._symbol_gate_id).clear()
 
     def _cfg(self, key: str, default=None, cast=None):
         val = self.config.get_nested(self._llm_name, key, default=default)
@@ -140,6 +217,192 @@ class Polling():
         """清除对话上下文"""
         self.context.clear()
         self.context_summary = ""
+        SymbolReadGate.get(self._symbol_gate_id).clear()
+        self._reset_tool_session_state()
+
+    def add_read_file_allowlist(self, *names):
+        """允许读取 config.yaml 等（配置审计）。"""
+        for name in names:
+            n = str(name).strip().lower()
+            if n:
+                self.read_file_allowlist.add(n)
+        sync_read_file_allowlist(self.read_file_allowlist)
+
+    def _reset_tool_session_state(self):
+        self._session_tool_signatures: list = []
+        self._empty_search_streak = 0
+        self._cmd_findstr_count = 0
+        self._grep_code_count = 0
+        self._read_symbol_files: set = set()
+        self._read_file_paths: set = set()
+        self._investigation_evidence = {
+            "search_hit": False,
+            "read_small_file": False,
+            "grep_usage": False,
+        }
+        self._evidence_stop_injected = False
+
+    def _normalize_tool_signature(self, tool_name: str, call_info: dict) -> str:
+        if call_info.get("is_native"):
+            kwargs = call_info.get("kwargs") or {}
+            try:
+                payload = json.dumps(kwargs, sort_keys=True, ensure_ascii=False)
+            except TypeError:
+                payload = str(kwargs)
+            return f"{tool_name}::{payload}"
+        return f"{tool_name}::{call_info.get('args', '')}"
+
+    def _check_tool_loop_policy(self, tool_name: str, signature: str, arg_text: str, call_info: dict | None = None) -> dict | None:
+        if self._session_tool_signatures and self._session_tool_signatures[-1] == signature:
+            return {
+                "ok": False,
+                "tool": tool_name,
+                "error_type": "duplicate_loop",
+                "error": "检测到与上一轮完全相同的工具调用，已跳过。请换用 hints 中的 next_steps 或直接总结。",
+                "hint": "勿重复 search_symbols/cmd；改用 list_symbol_callers 或 grep_code",
+            }
+        if tool_name == "cmd" and "findstr" in str(arg_text).lower():
+            self._cmd_findstr_count += 1
+            if self._cmd_findstr_count > 1:
+                return {
+                    "ok": False,
+                    "tool": tool_name,
+                    "error_type": "duplicate_loop",
+                    "error": "已执行过 findstr 类 cmd，请改用 grep_code_batch(preset='find_config_loader') 一次完成文本搜索。",
+                }
+        if tool_name in {"grep_code", "grep_code_batch"}:
+            self._grep_code_count += 1
+            grep_limit = self._cfg("MAX_GREP_CODE_PER_SESSION", default=2, cast=int)
+            if self._grep_code_count > grep_limit:
+                return {
+                    "ok": False,
+                    "tool": tool_name,
+                    "error_type": "duplicate_loop",
+                    "error": (
+                        f"本会话已调用 grep 类工具 {self._grep_code_count - 1} 次。"
+                        "请改用 grep_code_batch(preset='find_config_loader') 或 list_module_importers，然后直接总结。"
+                    ),
+                    "hint": "勿对同一调查连续换 pattern 调用 grep_code",
+                }
+        if call_info:
+            read_block = self._check_read_symbol_loop(tool_name, call_info)
+            if read_block is not None:
+                return read_block
+        return None
+
+    def _normalize_file_key(self, file_path: str) -> str:
+        p = str(file_path or "").strip().replace("\\", "/")
+        if not p:
+            return ""
+        if not os.path.isabs(p):
+            return p.lower()
+        try:
+            return os.path.relpath(p, self.project_path).replace("\\", "/").lower()
+        except ValueError:
+            return p.lower()
+
+    def _check_read_symbol_loop(self, tool_name: str, call_info: dict) -> dict | None:
+        if tool_name not in {"read_symbol", "read_file"}:
+            return None
+        if call_info.get("is_native"):
+            kwargs = call_info.get("kwargs") or {}
+            fp = kwargs.get("file_path", "")
+        else:
+            fp = ""
+            try:
+                import ast as _ast
+
+                parsed = _ast.literal_eval(call_info.get("args") or "()")
+                if isinstance(parsed, dict):
+                    fp = parsed.get("file_path", "")
+                elif isinstance(parsed, (list, tuple)) and parsed:
+                    fp = parsed[0]
+            except Exception:
+                fp = ""
+        key = self._normalize_file_key(fp)
+        if not key:
+            return None
+        if tool_name == "read_symbol" and key in self._read_symbol_files:
+            return {
+                "ok": False,
+                "tool": tool_name,
+                "error_type": "duplicate_loop",
+                "error": f"本会话已 read_symbol 过 {fp}。小文件请一次 read_file；或只对入口符号 read_symbol(include_neighbors=True) 一次。",
+                "hint": "勿对同文件 __init__/get/get_nested 各调一次 read_symbol",
+            }
+        return None
+
+    def _record_read_paths(self, tool_name: str, tool_result: dict, call_info: dict) -> None:
+        if not isinstance(tool_result, dict) or not tool_result.get("ok"):
+            return
+        fp = tool_result.get("file_path") or tool_result.get("target", {}).get("file_path", "")
+        if not fp and call_info.get("is_native"):
+            fp = (call_info.get("kwargs") or {}).get("file_path", "")
+        key = self._normalize_file_key(fp)
+        if not key:
+            return
+        if tool_name == "read_symbol":
+            self._read_symbol_files.add(key)
+        if tool_name == "read_file":
+            self._read_file_paths.add(key)
+            line_count = int(tool_result.get("line_count") or tool_result.get("lines") or 0)
+            if line_count and line_count <= 120:
+                self._investigation_evidence["read_small_file"] = True
+            elif len(str(tool_result.get("content", ""))) < 8000:
+                self._investigation_evidence["read_small_file"] = True
+
+    def _after_tool_result_policy(self, tool_name: str, tool_result: dict, call_info: dict | None = None) -> None:
+        if tool_name == "search_symbols" and isinstance(tool_result, dict):
+            if tool_result.get("ok") and int(tool_result.get("count", 0) or 0) == 0:
+                self._empty_search_streak += 1
+            else:
+                self._empty_search_streak = 0
+                if int(tool_result.get("count", 0) or 0) > 0:
+                    self._investigation_evidence["search_hit"] = True
+        if self._empty_search_streak >= 3:
+            self.context.append(
+                {
+                    "role": "user",
+                    "content": (
+                        "已连续 3 次 search_symbols 无结果。请停止换词搜索。"
+                        "改用: grep_code_batch(preset='find_config_loader'), read_file(yamlConfig.py), "
+                        "list_module_importers('yamlConfig.py')。然后直接给出分析结论。"
+                    ),
+                }
+            )
+            self._empty_search_streak = 0
+
+        if tool_name in {"grep_code", "grep_code_batch"} and isinstance(tool_result, dict) and tool_result.get("ok"):
+            usage_n = int(tool_result.get("usage_reference_count", 0) or 0)
+            if usage_n > 0 or tool_result.get("warnings"):
+                self._investigation_evidence["grep_usage"] = True
+            for item in tool_result.get("hits") or []:
+                text = str(item.get("text", "")).lower()
+                if "import yamlconfig" in text or "config(" in text.replace(" ", ""):
+                    self._investigation_evidence["grep_usage"] = True
+                    break
+
+        if call_info:
+            self._record_read_paths(tool_name, tool_result, call_info)
+
+        ev = self._investigation_evidence
+        if (
+            not self._evidence_stop_injected
+            and ev.get("search_hit")
+            and ev.get("grep_usage")
+            and (ev.get("read_small_file") or self._read_symbol_files)
+        ):
+            self._evidence_stop_injected = True
+            self.context.append(
+                {
+                    "role": "user",
+                    "content": (
+                        "调查证据已足够（符号命中 + 读取源码 + import/Config 引用）。"
+                        "请直接撰写结论，勿再调用 grep/read 工具。"
+                        "若 grep 有 warnings，勿称 Config 为死代码。"
+                    ),
+                }
+            )
 
     def set_debug(self, enabled: bool):
         self.debug = bool(enabled)
@@ -430,9 +693,42 @@ class Polling():
         return value
 
     def _build_wiki_context(self, question: str) -> str:
-        """从项目 wiki 索引中检索 top-k 片段，避免全量注入。"""
+        """从 CODE_GRAPH 符号索引检索 top-k 节点；无图时回退文件级 wiki。"""
         if not self.enable_wiki_retrieval:
             return ""
+
+        graph_path = self._resolve_code_graph_json_path()
+        if graph_path is not None:
+            try:
+                from code_graph.models import CodeGraphIndex
+
+                graph = CodeGraphIndex.from_dict(json.loads(graph_path.read_text(encoding="utf-8")))
+                question_terms = {x.lower() for x in re.findall(r"[A-Za-z_][A-Za-z0-9_]*|[\u4e00-\u9fff]+", question)}
+                scored = []
+                for node in graph.nodes:
+                    hay = " ".join(
+                        [node.qualified_name, node.file_path, node.summary, node.kind, node.language]
+                    ).lower()
+                    score = sum(1 for t in question_terms if t and t in hay)
+                    score += min(2, len(node.called_by))
+                    score += min(1, len(node.calls))
+                    if score > 0:
+                        scored.append((score, node))
+                top_nodes = [x[1] for x in sorted(scored, key=lambda t: t[0], reverse=True)[: self.wiki_retrieval_top_k]]
+                if top_nodes:
+                    lines = ["Relevant code graph symbols (read these before editing):"]
+                    for node in top_nodes:
+                        lines.append(
+                            f"- {node.qualified_name} @ {node.file_path}:{node.start_line}-{node.end_line} "
+                            f"calls={len(node.calls)} called_by={len(node.called_by)} hash={node.body_hash}"
+                        )
+                        if node.called_by:
+                            lines.append("  upstream_ids=" + ",".join(node.called_by[:3]))
+                        if node.calls:
+                            lines.append("  downstream_ids=" + ",".join(node.calls[:3]))
+                    return "\n".join(lines)
+            except Exception:
+                pass
 
         json_path = self._resolve_project_wiki_json_path()
         if json_path is None:
@@ -471,6 +767,13 @@ class Polling():
                 f"- file={item.get('file')} module={item.get('module')} chunks={item.get('chunk_count')} calls={item.get('call_relation_count')}"
             )
         return "\n".join(lines)
+
+    def _resolve_code_graph_json_path(self):
+        if self.project_code_graph_json_path:
+            configured = Path(self.project_code_graph_json_path)
+            if configured.exists():
+                return configured
+        return CodeGraphStore.resolve_graph_path(self.project_path, self.project_code_graph_json_path)
 
     def _resolve_project_wiki_json_path(self):
         """优先使用配置路径，其次按项目名匹配，最后才回退首个目录。"""
@@ -602,6 +905,11 @@ class Polling():
 
         effective_max_tools_per_round = self.max_tools_per_round if max_tools_per_round is None else max(1, int(max_tools_per_round))
         effective_max_tool_rounds = self.max_tool_rounds if max_tool_rounds is None else max(1, int(max_tool_rounds))
+        if pts.is_investigation_task(prompt):
+            inv_rounds = self._cfg("INVESTIGATION_MAX_TOOL_ROUNDS", default=12, cast=int)
+            effective_max_tool_rounds = max(effective_max_tool_rounds, inv_rounds)
+
+        self._reset_tool_session_state()
 
         user_prompt = self._build_user_prompt(prompt, self.last_intent_mode)
         self.context.append({"role": "user", "content": user_prompt})
@@ -797,6 +1105,19 @@ class Polling():
                 total_tool_calls += 1
                 self._show_tool_indicator(tool_name)
                 cache_key = f"{tool_name}::{call_info['args']}"
+                signature = self._normalize_tool_signature(tool_name, call_info)
+                arg_text = call_info.get("args") or json.dumps(call_info.get("kwargs") or {}, ensure_ascii=False)
+
+                loop_block = self._check_tool_loop_policy(tool_name, signature, arg_text, call_info)
+                if loop_block is not None:
+                    duplicate_tool_calls += 1
+                    tool_result = loop_block
+                    self._append_tool_result(call_info, tool_result)
+                    total_tool_result_chars += len(json.dumps(tool_result, ensure_ascii=False))
+                    self._session_tool_signatures.append(signature)
+                    self._after_tool_result_policy(tool_name, tool_result, call_info)
+                    messages = self._build_messages(intent_mode=self.last_intent_mode)
+                    continue
 
                 if (
                     profile_name == "large_write"
@@ -875,6 +1196,10 @@ class Polling():
                 self._append_tool_result(call_info, tool_result)
                 total_tool_result_chars += len(json.dumps(tool_result, ensure_ascii=False))
                 self._log(f"工具结果: {tool_name} -> \n{tool_result}", level="debug")
+
+                self._session_tool_signatures.append(signature)
+                if isinstance(tool_result, dict):
+                    self._after_tool_result_policy(tool_name, tool_result, call_info)
 
                 messages = self._build_messages(intent_mode=self.last_intent_mode)
             per_round_docs_seen.clear()

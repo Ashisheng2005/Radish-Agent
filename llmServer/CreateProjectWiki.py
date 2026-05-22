@@ -120,8 +120,32 @@ class CreateProjectWikiExecutor:
             "modules": self._group_files_by_module(file_results),
         }
 
+        code_graph_meta = self._build_code_graph()
+        project_result["code_graph"] = code_graph_meta
+
         self._write_project_index(project_result)
         return project_result
+
+    def _build_code_graph(self) -> Dict[str, Any]:
+        """构建多语言 CODE_GRAPH.json 并写入项目 wiki 目录。"""
+        try:
+            from code_graph.indexer import CodeGraphIndexer
+
+            index = CodeGraphIndexer(
+                project_path=self.project_path,
+                wiki_root=self.wiki_root,
+            ).execute()
+            return {
+                "path": os.path.relpath(
+                    os.path.join(self.project_wiki_root, "CODE_GRAPH.json"),
+                    self.project_path,
+                ).replace(os.sep, "/"),
+                "node_count": index.stats.get("node_count", 0),
+                "edge_count": index.stats.get("edge_count", 0),
+                "parser_backend": index.parser_backend,
+            }
+        except Exception as err:
+            return {"path": "", "error": str(err)}
 
     def _collect_python_files(self) -> List[str]:
         results: List[str] = []
@@ -197,10 +221,26 @@ class CreateProjectWikiExecutor:
             f"- Python Files: {project_result['total_python_files']}",
             f"- Success: {project_result['success_count']}",
             f"- Failed: {project_result['failed_count']}",
-            "",
-            "## Module Index",
-            "",
         ]
+        cg = project_result.get("code_graph") or {}
+        if cg.get("path"):
+            lines.extend(
+                [
+                    f"- Code Graph: `{cg['path']}`",
+                    f"- Code Graph Nodes: {cg.get('node_count', 0)}",
+                    f"- Code Graph Edges: {cg.get('edge_count', 0)}",
+                    f"- Parser Backend: {cg.get('parser_backend', '')}",
+                ]
+            )
+        elif cg.get("error"):
+            lines.append(f"- Code Graph Error: {cg['error']}")
+        lines.extend(
+            [
+                "",
+                "## Module Index",
+                "",
+            ]
+        )
 
         if project_result["modules"]:
             for module in project_result["modules"]:

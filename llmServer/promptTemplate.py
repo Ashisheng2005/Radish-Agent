@@ -41,8 +41,11 @@ Plan mode objective:
 - Produce an actionable execution workflow before implementation.
 Hard constraints:
 1. Planning-only mode: do not create/modify/delete files.
-2. Do not call write tools such as `write_file` or `create_path_or_file`.
-3. Output should include steps, risks, rollback idea, and acceptance checks when relevant.
+2. Do not call write tools such as `write_file`, `write_symbol`, or `create_path_or_file`.
+3. For code-change plans, you MUST first use `search_symbols` and `read_symbol` to inspect the target symbol and its direct upstream/downstream neighbors in CODE_GRAPH.
+4. Plans must list which symbols to read/modify and which neighbor nodes justify the change scope.
+5. If CODE_GRAPH is missing, state that index build is required and allow fallback to `read_file` evidence gathering.
+6. Output should include steps, risks, rollback idea, and acceptance checks when relevant.
 Completion criteria:
 - Deliver a concrete and executable plan instead of code edits.
 """
@@ -52,8 +55,13 @@ Agent mode objective:
 - Execute file/code changes and deliver completed results.
 Hard constraints:
 1. For modification intents, do not stop at suggestions only.
-2. If target file is known, you MUST attempt `read_file` then `write_file`.
-3. Task is complete only when file is updated, or a concrete blocker is reported (path/permission/conflict).
+2. When CODE_GRAPH is available and target is a function/method, you MUST:
+   - `search_symbols` (if symbol name/path is uncertain)
+   - `read_symbol` with include_neighbors=True (target + direct upstream/downstream)
+   - `write_symbol` using function-relative edits (`s`/`e` are relative to symbol start line)
+3. `write_symbol` will be rejected unless required symbols were read in this session.
+4. If CODE_GRAPH is missing or symbol not indexed, fallback to `read_file` + `write_file`.
+5. Task is complete only when file is updated, or a concrete blocker is reported (path/permission/conflict/hash mismatch).
 Completion criteria:
 - Report key changes after successful write, or clearly report blocker.
 """
@@ -71,16 +79,27 @@ toolboxPrompt = """\nShared tool policy:
 8. If you need to create a brand-new large file (for example SQL/script content > 20 lines), prefer one-shot shell heredoc via `cmd` instead of many `write_file` retries.
 9. For `create_path_or_file`, if target is a file path, you must pass `is_file=True`.
 10. In large script generation, do NOT mix `cmd` and `write_file` in the same attempt unless previous command failed.
+11. Code graph workflow: prefer `search_symbols` -> `read_symbol` -> `write_symbol` for function-level edits; never skip neighbor reads before `write_symbol`.
+12. `write_symbol` edits use symbol-relative line numbers (line 1 = first line of the symbol body).
+
+Investigation playbook (config / reference / audit tasks):
+1. Locate loader code: ONE `search_symbols("Config", file_glob="*yaml*")` — do NOT retry search_symbols with many different queries if count=0; read `hints` and `next_steps` instead.
+2. If loader file is small (<80 lines, e.g. yamlConfig.py): ONE `read_file` — do NOT call `read_symbol` separately for __init__/get/get_nested on the same file. If using graph: ONE `read_symbol(..., Config.__init__, include_neighbors=True)` only.
+3. `list_symbol_callers(file_path, Config.__init__)` OR `list_module_importers("yamlConfig.py")` for module usage — `.get` callers do NOT include `Config(...)` instantiation.
+4. ONE `grep_code_batch(preset="find_config_loader", path_glob="**/*.py")` OR `grep_code(preset="find_config_loader")` — replaces multiple grep_code / cmd findstr. If `truncated` or `warnings`, do NOT claim dead code.
+5. After steps 2–4 succeed, synthesize findings; do not keep calling tools.
 
 Mode-specific tool policy:
 - ask mode:
   * Read-only, never call `write_file` / `create_path_or_file`.
+  * For investigation tasks, prefer `search_symbols`, `read_file`/`read_symbol`, `list_module_importers`, `grep_code_batch` over blind `cmd` loops.
 - plan mode:
-  * Read-only, never call `write_file` / `create_path_or_file`.
-  * Gather only enough evidence for a reliable plan.
+  * Read-only, never call `write_file` / `write_symbol` / `create_path_or_file`.
+  * For code changes, gather symbol graph context via `search_symbols` + `read_symbol` before planning.
 - agent mode:
   * Execution first for modification intent.
-  * If target file is known and request is rewrite/refactor/fix/update, MUST attempt `read_file` + `write_file`.
+  * Prefer `search_symbols` + `read_symbol` + `write_symbol` when editing functions/methods.
+  * Fallback to `read_file` + `write_file` only when graph/symbol is unavailable.
   * Do not end with analysis-only response in modification requests.
   * After successful write, output a brief completion message with key changes.
 

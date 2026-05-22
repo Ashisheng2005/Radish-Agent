@@ -6,6 +6,17 @@ import re
 import json
 from pathlib import Path
 
+def is_investigation_task(prompt: str) -> bool:
+    """配置/引用/硬编码类调查任务，适合提高工具轮次并走图+grep 流程。"""
+    text = (prompt or "").lower()
+    keywords = [
+        "检查", "分析", "审查", "排查", "加载", "遗漏", "硬编码", "调用方", "引用",
+        "config.yaml", "config.yml", "配置文件", "上下游", "search_symbols", "grep",
+        "investigate", "audit", "hardcoded", "caller", "callee",
+    ]
+    return any(k in text for k in keywords)
+
+
 def detect_intent_mode(prompt: str) -> str:
     text = (prompt or "").lower()
 

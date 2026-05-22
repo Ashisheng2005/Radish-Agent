@@ -12,3 +12,5 @@ __pycache__/
 config.yaml
 @AutomationLog.txt
 wiki
+config.yaml
+vendor/*

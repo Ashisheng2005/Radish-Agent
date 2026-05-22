@@ -1,4 +1,5 @@
 import argparse
+import os
 import traceback
 import time
 import sys
@@ -10,6 +11,7 @@ try:
     from prompt_toolkit.patch_stdout import patch_stdout
     from prompt_toolkit.formatted_text import ANSI
     from prompt_toolkit.completion import Completer, Completion
+    
 except Exception:
     PromptSession = None
     InMemoryHistory = None
@@ -27,6 +29,16 @@ except Exception:
 
 from llmPolling import Polling
 
+# 　　       ∧,,　
+# 　　　　 ヾ｀. ､`フ
+# 　　　(,｀'´ヽ､､ﾂﾞ
+# 　 (ヽｖ'　　　`''ﾞつ
+# 　　,ゝ　 ⌒`ｙ'''´
+# 　 （ (´＾ヽこつ
+# 　　 ) )
+# 　　(ノ
+
+
 
 HELP_TEXT = """可用命令:
 /help                显示帮助
@@ -41,6 +53,11 @@ HELP_TEXT = """可用命令:
 /usage on|off        打开/关闭每次回复后的使用统计显示
 /setup [refresh]     打开 LLM 提供商配置向导 / 刷新模型数据库缓存
 /switch [提供商]      切换当前模型（不指定则交互选择）
+/graph               查看代码图状态（项目路径、节点/边数量）
+/graph status        同 /graph
+/graph build         为当前目录构建 CODE_GRAPH 索引
+/graph gate clear    清空符号读取门禁（调试用）
+/allow config        允许本会话 read_file 读取 config.yaml（审计用）
 /exit                退出
 """
 
@@ -50,6 +67,7 @@ def build_parser():
     parser = argparse.ArgumentParser(description="Radish AI 交互控制台")
     parser.add_argument("--debug", action="store_true", help="启动时开启调试输出")
     parser.add_argument("--verbose", action="store_true", help="启动时显示普通日志")
+    parser.add_argument("--build-graph", action="store_true", help="启动时为当前目录构建代码图索引")
     return parser
 
 
@@ -93,25 +111,29 @@ COMMANDS = [
     "/usage on", "/usage off",
     "/setup", "/setup refresh",
     "/switch",
+    "/graph", "/graph status", "/graph build", "/graph gate clear",
+    "/allow config",
     "/exit",
 ]
 
 
-class CommandCompleter(Completer):
-    """当输入以 / 开头时，匹配并补全命令。"""
+if Completer is not None:
 
-    def __init__(self, commands: list[str]):
-        self.commands = commands
+    class CommandCompleter(Completer):
+        """当输入以 / 开头时，匹配并补全命令。"""
 
-    def get_completions(self, document, complete_event):
-        text = document.text_before_cursor
-        if not text.startswith("/"):
-            return
-        # 只补全第一个单词（不补全参数）
-        word = text.split()[-1] if text else ""
-        for cmd in self.commands:
-            if cmd.startswith(text):
-                yield Completion(cmd, start_position=-len(text))
+        def __init__(self, commands: list[str]):
+            self.commands = commands
+
+        def get_completions(self, document, complete_event):
+            text = document.text_before_cursor
+            if not text.startswith("/"):
+                return
+            # 只补全第一个单词（不补全参数）
+            word = text.split()[-1] if text else ""
+            for cmd in self.commands:
+                if cmd.startswith(text):
+                    yield Completion(cmd, start_position=-len(text))
 
 
 def _fmt_tokens(n: int) -> str:
@@ -125,6 +147,57 @@ def _fmt_tokens(n: int) -> str:
     if n >= 1_000:
         return f"{n // 1_000}K"
     return str(n)
+
+
+def _format_graph_status(status: dict) -> str:
+    project = status.get("project_path", os.getcwd())
+    if status.get("loaded"):
+        return (
+            f"代码图: 已加载 {status.get('node_count', 0)} nodes / "
+            f"{status.get('edge_count', 0)} edges "
+            f"({status.get('parser_backend', '')}) | 项目: {project}"
+        )
+    hint = status.get("error") or "未索引"
+    return f"代码图: {hint} | 项目: {project} | 请执行 /graph build"
+
+
+def _print_graph_status(bot):
+    status = bot.get_code_graph_status()
+    print(_format_graph_status(status))
+    if status.get("path"):
+        print(f"  索引路径: {status['path']}")
+
+
+def _handle_graph_command(bot, user_input: str) -> bool:
+    """处理 /graph 子命令，返回 True 表示已消费输入。"""
+    parts = user_input.split()
+    if len(parts) == 1 or (len(parts) == 2 and parts[1] == "status"):
+        _print_graph_status(bot)
+        return True
+
+    if len(parts) >= 2 and parts[1] == "build":
+        print("正在构建代码图索引...")
+        t0 = time.time()
+        try:
+            status = bot.build_code_graph()
+            elapsed = status.get("elapsed_sec", round(time.time() - t0, 2))
+            print(
+                f"构建完成: {status.get('node_count', 0)} nodes, "
+                f"{status.get('edge_count', 0)} edges, 耗时 {elapsed}s"
+            )
+            if status.get("path"):
+                print(f"  已写入: {status['path']}")
+        except Exception as err:
+            print(f"构建失败: {err}")
+        return True
+
+    if len(parts) >= 3 and parts[1] == "gate" and parts[2] == "clear":
+        bot.clear_symbol_read_gate()
+        print("符号读取门禁已清空。")
+        return True
+
+    print("用法: /graph | /graph status | /graph build | /graph gate clear")
+    return True
 
 
 def _build_prompt(bot) -> str:
@@ -147,6 +220,14 @@ def main():
         print(_colorize_status(msg))
 
     bot = Polling(verbose=args.verbose, debug=args.debug, status_callback=on_status)
+    bot.refresh_code_graph(project_path=os.getcwd())
+
+    if args.build_graph:
+        print("启动参数 --build-graph：正在构建代码图...")
+        try:
+            bot.build_code_graph()
+        except Exception as err:
+            print(f"代码图构建失败: {err}")
 
     print("{:-^130}".format("\033[94m Radish AI Console \033[0m"))
 
@@ -164,6 +245,7 @@ def main():
     # 输出粉色的欢迎信息，提示用户输入 /help 查看命令
     print("{:^130}".format(f"\033[96m {bot.model} {_fmt_tokens(bot.get_max_token())} \033[0m") )
     print("{:^120}".format("\033[95mCiallo~ 输入 /help 查看命令，/exit 退出。\033[0m") )
+    print("{:^120}".format(f"\033[90m{_format_graph_status(bot.get_code_graph_status())}\033[0m"))
     print("-" * 121)
 
     prompt_session = None
@@ -314,6 +396,15 @@ def main():
                     print(f"切换失败: {err}")
                     continue
                 print(f"已切换到: {target} ({bot.model})")
+                continue
+
+            if user_input == "/graph" or user_input.startswith("/graph "):
+                _handle_graph_command(bot, user_input)
+                continue
+
+            if user_input == "/allow config":
+                bot.add_read_file_allowlist("config.yaml", "config.yml")
+                print("已允许本会话 read_file 读取 config.yaml / config.yml。")
                 continue
 
             try:

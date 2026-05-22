@@ -57,7 +57,7 @@
 
 import requests
 
-DEEPSEEK_API_KEY = "sk-15f1be73688b41559426c6fbbf78fa77"
+DEEPSEEK_API_KEY = "sk-15"
 DEEPSEEK_BASE_URL = "https://api.deepseek.com/chat/completions"
 text = "This paper presents a novel approach to natural language processing using deep learning techniques. The proposed method outperforms existing models on several benchmark datasets, demonstrating its effectiveness in understanding and generating human language. Experimental results show significant improvements in accuracy and efficiency compared to traditional methods."
 headers = {

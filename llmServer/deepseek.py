@@ -39,6 +39,8 @@ class DeepSeek():
         tool_calls = message.tool_calls if hasattr(message, "tool_calls") and message.tool_calls else None
         usage = response.usage if hasattr(response, "usage") else None
         usage_dict = usage.model_dump() if usage else None
+        if usage_dict:
+            usage_dict = self._normalize_usage_dict(usage_dict)
 
         if self.debug:
             finish_reason = choice.finish_reason
@@ -50,5 +52,17 @@ class DeepSeek():
                 print(f"[deepseek.debug] usage={usage}")
 
         return content.strip(), tool_calls, usage_dict
-    
-    
+
+    @staticmethod
+    def _normalize_usage_dict(usage_dict: dict) -> dict:
+        """展平各 provider 的 cache 字段，便于 Polling 统计 cache 命中率。"""
+        out = dict(usage_dict)
+        cached = int(out.get("cached_tokens", 0) or 0)
+        details = out.get("prompt_tokens_details")
+        if isinstance(details, dict):
+            cached = max(cached, int(details.get("cached_tokens", 0) or 0))
+        # DeepSeek 官方字段：prompt_cache_hit_tokens（非 OpenAI 的 cached_tokens）
+        cached = max(cached, int(out.get("prompt_cache_hit_tokens", 0) or 0))
+        if cached:
+            out["cached_tokens"] = cached
+        return out

@@ -10,7 +10,7 @@ Universal rules:
 5. In final user-facing reply, prefer natural complete sentences and avoid exposing field labels.
 """
 
-# 初始化的系统提示词（默认按 mode 路由）
+# 仅用于测试 CLI 等需要「单条 user 含全量指令」的场景；sendinfo 请用 systemPrefixPrompt + userTaskPrompt。
 initializationPrompt = """
 {common_prompt}
 Current task mode: {task_mode}
@@ -137,3 +137,9 @@ Mode routing guidance (intent -> mode):
 If both explanation and modification intents appear together, prioritize agent mode.
 {tools_prompt}
 """
+
+# 每轮用户任务：仅动态内容，静态策略在 systemPrefixPrompt（利于 prompt cache 前缀命中）
+userTaskPrompt = """[Task]
+{question}{extras}"""
+
+SESSION_SUMMARY_TAG = "[SessionSummary]"

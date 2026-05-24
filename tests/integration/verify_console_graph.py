@@ -1,11 +1,13 @@
 """Console 代码图集成冒烟验证（无需 LLM API）。"""
 import os
 import sys
+from pathlib import Path
 
-LLM_SERVER = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, LLM_SERVER)
+REPO_ROOT = Path(__file__).resolve().parents[2]
+LLM_SERVER = REPO_ROOT / "llmServer"
+FIXTURES = REPO_ROOT / "tests" / "fixtures" / "code_graph_mini"
 
-FIXTURES = os.path.abspath(os.path.join(LLM_SERVER, "..", "tests", "fixtures", "code_graph_mini"))
+sys.path.insert(0, str(LLM_SERVER))
 
 
 def main():
@@ -16,19 +18,16 @@ def main():
 
     class FakeBot:
         def __init__(self):
-            self.project_path = FIXTURES
+            self.project_path = str(FIXTURES)
             self.project_code_graph_json_path = ""
 
         def refresh_code_graph(self, project_path=None):
-            from llmPolling import Polling
-
-            # 仅复用方法逻辑，不实例化 Polling
-            self.project_path = os.path.abspath(project_path or FIXTURES)
-            init_code_graph(self.project_path, self.project_code_graph_json_path)
             from code_graph.store import CodeGraphStore
             import json
             from code_graph.models import CodeGraphIndex
 
+            self.project_path = os.path.abspath(project_path or FIXTURES)
+            init_code_graph(self.project_path, self.project_code_graph_json_path)
             resolved = CodeGraphStore.resolve_graph_path(self.project_path, "")
             store = CodeGraphStore(self.project_path)
             status = {

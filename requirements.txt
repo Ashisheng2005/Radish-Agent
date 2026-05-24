@@ -1,0 +1,9 @@
+# Radish-Agent core (console + LLM orchestration)
+prompt-toolkit>=3.0
+wcwidth>=0.2
+pyyaml
+openai
+requests
+
+# Optional: tree-sitter code graph backends
+# pip install -r requirements-code-graph.txt

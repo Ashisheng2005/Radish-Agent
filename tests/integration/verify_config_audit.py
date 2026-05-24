@@ -1,15 +1,17 @@
 """验收：config 调查工具链能否发现 llmPolling 对 Config 的引用。"""
-import os
 import sys
+from pathlib import Path
 
-LLM_SERVER = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, LLM_SERVER)
+REPO_ROOT = Path(__file__).resolve().parents[2]
+LLM_SERVER = REPO_ROOT / "llmServer"
+
+sys.path.insert(0, str(LLM_SERVER))
 
 from code_graph.symbol_tools import configure_graph, grep_code_batch, list_module_importers
 
 
 def main():
-    configure_graph(project_path=LLM_SERVER)
+    configure_graph(project_path=str(LLM_SERVER))
     batch = grep_code_batch(preset="find_config_loader", path_glob="**/*.py")
     importers = list_module_importers(module_file="yamlConfig.py", path_glob="**/*.py")
 

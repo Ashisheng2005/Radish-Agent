@@ -1,3 +1,4 @@
+"""分析 runtime_metrics.jsonl（A/B 或默认文件）。"""
 import json
 from pathlib import Path
 from statistics import mean
@@ -25,7 +26,6 @@ def summarize(events):
     if not metric_events:
         metric_events = events
     samples = len(metric_events)
-    # tokens 汇总
     total_prompt_tokens = sum((x.get("tokens") or {}).get("prompt_tokens", 0) for x in metric_events)
     total_completion_tokens = sum((x.get("tokens") or {}).get("completion_tokens", 0) for x in metric_events)
     total_tokens = sum((x.get("tokens") or {}).get("total_tokens", 0) for x in metric_events)
@@ -43,7 +43,6 @@ def summarize(events):
         "total_tokens": int(total_tokens),
         "avg_total_tokens": round(total_tokens / samples, 3) if samples else 0.0,
     }
-
 
 
 def main():

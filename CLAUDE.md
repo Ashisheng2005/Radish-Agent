@@ -6,7 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 # Install dependencies
-pip install prompt-toolkit pyyaml openai requests
+pip install -r requirements.txt
+# optional code graph: pip install -r requirements-code-graph.txt
 
 # Activate venv then start interactive console
 source .venv/bin/activate  # Linux/Mac
@@ -35,6 +36,16 @@ python llmServer/test_flow_cli.py run --prompt "your prompt" --json
 cd RadishTools/src/FileExecutor/core
 python -m pytest test_write_file_v2.py -v
 
+# Unit tests (no API)
+python -m unittest discover -s llmServer -p "test_*.py"
+
+# Integration checks (no API)
+python tests/integration/verify_console_graph.py
+python tests/integration/verify_config_audit.py
+
+# Metrics analysis (dev)
+python scripts/ab_metrics_report.py
+
 # Check syntax of all modules
 python -c "import ast; ast.parse(open('llmServer/llmPolling.py', encoding='utf-8').read()); print('OK')"
 ```
@@ -57,7 +68,12 @@ E:\Radish-Agent\
 │   ├── test_flow_cli.py     # Test runner CLI
 │   ├── test_cases.json      # Test case definitions (smoke/regression/destructive)
 │   ├── models_dev_cache.json # Cached model database from models.dev (auto-generated)
+│   ├── code_graph/          # Code graph index, symbol tools
 │   └── CreateCodeNode.py    # Wiki/indexing related
+├── tests/
+│   ├── fixtures/code_graph_mini/
+│   └── integration/         # verify_console_graph, verify_config_audit
+├── scripts/                 # ab_metrics_report.py, etc.
 ├── RadishTools/src/         # Tool execution engines
 │   ├── CmdExecutor/core/    # Shell command execution (subprocess)
 │   └── FileExecutor/core/   # File operations
@@ -67,8 +83,9 @@ E:\Radish-Agent\
 │       ├── ListDir.py       # Directory listing
 │       └── CreatePathOrFile.py
 ├── docs/                    # Design docs (token optimization, tool chain fixes)
-├── plan/                    # Implementation plans
-└── runtime_metrics.jsonl    # Interaction metrics (JSONL)
+├── requirements.txt         # Core Python dependencies
+├── README.md / README.en.md # User-facing docs (bilingual)
+└── runtime_metrics.jsonl    # Interaction metrics (JSONL, gitignored)
 ```
 
 ## Architecture

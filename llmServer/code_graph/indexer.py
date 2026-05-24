@@ -173,8 +173,7 @@ class CodeGraphIndexer:
             n
             for file_nodes in by_file.values()
             for n in file_nodes
-            if n.symbol == "__init__"
-            and (
+            if (
                 n.qualified_name.endswith(f".{callee_name}.__init__")
                 or n.qualified_name == f"{callee_name}.__init__"
             )

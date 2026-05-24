@@ -116,7 +116,7 @@ def extract_regex_fallback(file_path: str, source: str, language: str) -> List[R
     symbols: List[RawSymbol] = []
 
     if language == "python":
-        return _extract_python_regex(file_path, lines)
+        return _extract_python_regex(file_path, source, lines)
 
     patterns = {
         "javascript": JS_FUNC_RE,

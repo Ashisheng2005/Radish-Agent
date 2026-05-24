@@ -1,3 +1,7 @@
+# console REPL 补全（Windows cmd 建议一并安装）
+# prompt-toolkit>=3.0
+# wcwidth>=0.2
+
 # 可选：安装后启用 tree-sitter 解析后端（未安装时自动降级 AST/正则）
 tree-sitter>=0.22
 tree-sitter-python>=0.21

@@ -40,6 +40,43 @@ class ToolLoopPolicyTests(unittest.TestCase):
         self.assertIsNotNone(block)
         self.assertEqual(block.get("error_type"), "duplicate_loop")
 
+    def test_sanitize_tool_chain_inserts_missing_replies(self):
+        messages = [
+            {"role": "user", "content": "hi"},
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {"id": "c1", "type": "function", "function": {"name": "grep_code", "arguments": "{}"}},
+                    {"id": "c2", "type": "function", "function": {"name": "grep_code_batch", "arguments": "{}"}},
+                ],
+            },
+            {"role": "tool", "tool_call_id": "c1", "content": "{}"},
+            {"role": "user", "content": "调查证据已足够"},
+        ]
+        fixed = Polling._sanitize_tool_message_chain(messages)
+        roles = [m["role"] for m in fixed]
+        self.assertEqual(
+            roles,
+            ["user", "assistant", "tool", "tool", "user"],
+        )
+        self.assertEqual(fixed[3]["tool_call_id"], "c2")
+
+    def test_fill_unanswered_native_tool_calls(self):
+        bot = Polling.__new__(Polling)
+        bot.context = []
+        bot._round_responded_tool_ids = {"call_1"}
+        execution_list = [
+            {"id": "call_1", "name": "list_dir", "args": "{}", "is_native": True},
+            {"id": "call_2", "name": "read_file", "args": "{}", "is_native": True},
+            {"id": "call_3", "name": "read_file", "args": "{}", "is_native": True},
+        ]
+        filled = bot._fill_unanswered_native_tool_calls(execution_list, reason="budget")
+        self.assertEqual(filled, 2)
+        tool_msgs = [m for m in bot.context if m.get("role") == "tool"]
+        self.assertEqual(len(tool_msgs), 2)
+        self.assertEqual({m["tool_call_id"] for m in tool_msgs}, {"call_2", "call_3"})
+
 
 if __name__ == "__main__":
     unittest.main()

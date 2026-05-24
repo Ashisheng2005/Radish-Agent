@@ -5,6 +5,8 @@ build/
 *.egg-info/
 msgs.txt
 __pycache__/
+*.pyc
+.pytest_cache/
 *.ipynb
 *.bat
 .venv
@@ -12,5 +14,7 @@ __pycache__/
 config.yaml
 @AutomationLog.txt
 wiki
-config.yaml
 vendor/*
+runtime_metrics.jsonl
+runtime_metrics_*.jsonl
+testtool.py

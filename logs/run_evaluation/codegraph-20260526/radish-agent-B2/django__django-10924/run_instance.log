@@ -1,0 +1,93 @@
+2026-05-26 17:12:01,935 - INFO - Creating container for django__django-10924...
+2026-05-26 17:12:01,971 - INFO - Container for django__django-10924 created: ff559b71b9264bde8b81556edf3b4258399e81fab516226e536980c400d4b59c
+2026-05-26 17:12:02,126 - INFO - Container for django__django-10924 started: ff559b71b9264bde8b81556edf3b4258399e81fab516226e536980c400d4b59c
+2026-05-26 17:12:02,130 - INFO - Intermediate patch for django__django-10924 written to logs/run_evaluation/codegraph-20260526/radish-agent-B2/django__django-10924/patch.diff, now applying to container...
+2026-05-26 17:12:02,277 - INFO - >>>>> Applied Patch:
+Checking patch django/db/models/fields/__init__.py...
+Checking patch django/forms/fields.py...
+Applied patch django/db/models/fields/__init__.py cleanly.
+Applied patch django/forms/fields.py cleanly.
+
+2026-05-26 17:12:03,994 - INFO - Git diff before:
+diff --git a/django/db/models/fields/__init__.py b/django/db/models/fields/__init__.py
+index 0c64748ccd..b1f25796da 100644
+--- a/django/db/models/fields/__init__.py
++++ b/django/db/models/fields/__init__.py
+@@ -1709,7 +1709,7 @@ class FilePathField(Field):
+ 
+     def formfield(self, **kwargs):
+         return super().formfield(**{
+-            'path': self.path,
++            'path': self.path() if callable(self.path) else self.path,
+             'match': self.match,
+             'recursive': self.recursive,
+             'form_class': forms.FilePathField,
+@@ -1718,9 +1718,6 @@ class FilePathField(Field):
+             **kwargs,
+         })
+ 
+-    def get_internal_type(self):
+-        return "FilePathField"
+-
+ 
+ class FloatField(Field):
+     empty_strings_allowed = False
+diff --git a/django/forms/fields.py b/django/forms/fields.py
+index a977256525..e48f253f33 100644
+--- a/django/forms/fields.py
++++ b/django/forms/fields.py
+@@ -1078,7 +1078,8 @@ class MultiValueField(Field):
+ class FilePathField(ChoiceField):
+     def __init__(self, path, *, match=None, recursive=False, allow_files=True,
+                  allow_folders=False, **kwargs):
+-        self.path, self.match, self.recursive = path, match, recursive
++        self.path = path() if callable(path) else path
++        self.match, self.recursive = match, recursive
+         self.allow_files, self.allow_folders = allow_files, allow_folders
+         super().__init__(choices=(), **kwargs)
+2026-05-26 17:12:04,001 - INFO - Eval script for django__django-10924 written to logs/run_evaluation/codegraph-20260526/radish-agent-B2/django__django-10924/eval.sh; copying to container...
+2026-05-26 17:12:09,507 - INFO - Test runtime: 5.43 seconds
+2026-05-26 17:12:09,510 - INFO - Test output for django__django-10924 written to logs/run_evaluation/codegraph-20260526/radish-agent-B2/django__django-10924/test_output.txt
+2026-05-26 17:12:09,585 - INFO - Git diff after:
+diff --git a/django/db/models/fields/__init__.py b/django/db/models/fields/__init__.py
+index 0c64748ccd..b1f25796da 100644
+--- a/django/db/models/fields/__init__.py
++++ b/django/db/models/fields/__init__.py
+@@ -1709,7 +1709,7 @@ class FilePathField(Field):
+ 
+     def formfield(self, **kwargs):
+         return super().formfield(**{
+-            'path': self.path,
++            'path': self.path() if callable(self.path) else self.path,
+             'match': self.match,
+             'recursive': self.recursive,
+             'form_class': forms.FilePathField,
+@@ -1718,9 +1718,6 @@ class FilePathField(Field):
+             **kwargs,
+         })
+ 
+-    def get_internal_type(self):
+-        return "FilePathField"
+-
+ 
+ class FloatField(Field):
+     empty_strings_allowed = False
+diff --git a/django/forms/fields.py b/django/forms/fields.py
+index a977256525..e48f253f33 100644
+--- a/django/forms/fields.py
++++ b/django/forms/fields.py
+@@ -1078,7 +1078,8 @@ class MultiValueField(Field):
+ class FilePathField(ChoiceField):
+     def __init__(self, path, *, match=None, recursive=False, allow_files=True,
+                  allow_folders=False, **kwargs):
+-        self.path, self.match, self.recursive = path, match, recursive
++        self.path = path() if callable(path) else path
++        self.match, self.recursive = match, recursive
+         self.allow_files, self.allow_folders = allow_files, allow_folders
+         super().__init__(choices=(), **kwargs)
+2026-05-26 17:12:09,586 - INFO - Grading answer for django__django-10924...
+2026-05-26 17:12:09,591 - INFO - report: {'django__django-10924': {'patch_is_None': False, 'patch_exists': True, 'patch_successfully_applied': True, 'resolved': True, 'tests_status': {'FAIL_TO_PASS': {'success': ['test_callable_path (model_fields.test_filepathfield.FilePathFieldTests)'], 'failure': []}, 'PASS_TO_PASS': {'success': ['test_path (model_fields.test_filepathfield.FilePathFieldTests)'], 'failure': []}, 'FAIL_TO_FAIL': {'success': [], 'failure': []}, 'PASS_TO_FAIL': {'success': [], 'failure': []}}}}
+Result for django__django-10924: resolved: True
+2026-05-26 17:12:09,595 - INFO - Attempting to stop container sweb.eval.django__django-10924.codegraph-20260526...
+2026-05-26 17:12:24,817 - INFO - Attempting to remove container sweb.eval.django__django-10924.codegraph-20260526...
+2026-05-26 17:12:24,852 - INFO - Container sweb.eval.django__django-10924.codegraph-20260526 removed.

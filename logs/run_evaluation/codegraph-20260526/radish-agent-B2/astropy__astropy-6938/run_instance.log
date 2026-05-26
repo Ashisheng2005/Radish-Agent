@@ -1,0 +1,45 @@
+2026-05-26 17:09:46,091 - INFO - Creating container for astropy__astropy-6938...
+2026-05-26 17:09:46,436 - INFO - Container for astropy__astropy-6938 created: a6a7b0ca96fa8ae439c280d99e9d447a652f7e183ebd47c6d3b165c82dd0905f
+2026-05-26 17:09:49,023 - INFO - Container for astropy__astropy-6938 started: a6a7b0ca96fa8ae439c280d99e9d447a652f7e183ebd47c6d3b165c82dd0905f
+2026-05-26 17:09:49,087 - INFO - Intermediate patch for astropy__astropy-6938 written to logs/run_evaluation/codegraph-20260526/radish-agent-B2/astropy__astropy-6938/patch.diff, now applying to container...
+2026-05-26 17:10:48,910 - INFO - >>>>> Applied Patch:
+Checking patch astropy/io/fits/fitsrec.py...
+Applied patch astropy/io/fits/fitsrec.py cleanly.
+
+2026-05-26 17:10:50,367 - INFO - Git diff before:
+diff --git a/astropy/io/fits/fitsrec.py b/astropy/io/fits/fitsrec.py
+index 574b4073b1..cb79142dce 100644
+--- a/astropy/io/fits/fitsrec.py
++++ b/astropy/io/fits/fitsrec.py
+@@ -1261,7 +1261,7 @@ class FITS_rec(np.recarray):
+ 
+         # Replace exponent separator in floating point numbers
+         if 'D' in format:
+-            output_field.replace(encode_ascii('E'), encode_ascii('D'))
++            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+ 
+ 
+ def _get_recarray_field(array, key):
+2026-05-26 17:10:51,193 - INFO - Eval script for astropy__astropy-6938 written to logs/run_evaluation/codegraph-20260526/radish-agent-B2/astropy__astropy-6938/eval.sh; copying to container...
+2026-05-26 17:10:59,175 - INFO - Test runtime: 7.91 seconds
+2026-05-26 17:10:59,179 - INFO - Test output for astropy__astropy-6938 written to logs/run_evaluation/codegraph-20260526/radish-agent-B2/astropy__astropy-6938/test_output.txt
+2026-05-26 17:10:59,252 - INFO - Git diff after:
+diff --git a/astropy/io/fits/fitsrec.py b/astropy/io/fits/fitsrec.py
+index 574b4073b1..cb79142dce 100644
+--- a/astropy/io/fits/fitsrec.py
++++ b/astropy/io/fits/fitsrec.py
+@@ -1261,7 +1261,7 @@ class FITS_rec(np.recarray):
+ 
+         # Replace exponent separator in floating point numbers
+         if 'D' in format:
+-            output_field.replace(encode_ascii('E'), encode_ascii('D'))
++            output_field = output_field.replace(encode_ascii('E'), encode_ascii('D'))
+ 
+ 
+ def _get_recarray_field(array, key):
+2026-05-26 17:10:59,252 - INFO - Grading answer for astropy__astropy-6938...
+2026-05-26 17:10:59,260 - INFO - report: {'astropy__astropy-6938': {'patch_is_None': False, 'patch_exists': True, 'patch_successfully_applied': True, 'resolved': False, 'tests_status': {'FAIL_TO_PASS': {'success': [], 'failure': ['astropy/io/fits/tests/test_checksum.py::TestChecksumFunctions::test_ascii_table_data', 'astropy/io/fits/tests/test_table.py::TestTableFunctions::test_ascii_table']}, 'PASS_TO_PASS': {'success': ['astropy/io/fits/tests/test_checksum.py::TestChecksumFunctions::test_sample_file', 'astropy/io/fits/tests/test_checksum.py::TestChecksumFunctions::test_image_create', 'astropy/io/fits/tests/test_checksum.py::TestChecksumFunctions::test_scaled_data', 'astropy/io/fits/tests/test_checksum.py::TestChecksumFunctions::test_scaled_data_auto_rescale', 'astropy/io/fits/tests/test_checksum.py::TestChecksumFunctions::test_uint16_data', 'astropy/io/fits/tests/test_checksum.py::TestChecksumFunctions::test_groups_hdu_data', 'astropy/io/fits/tests/test_checksum.py::TestChecksumFunctions::test_open_with_no_keywords', 'astropy/io/fits/tests/test_checksum.py::TestChecksumFunctions::test_writeto_convenience', 'astropy/io/fits/tests/test_checksum.py::TestChecksumFunctions::test_hdu_writeto', 'astropy/io/fits/tests/test_checksum.py::TestChecksumFunctions::test_datasum_only', 'astropy/io/fits/tests/test_table.py::test_regression_scalar_indexing'], 'failure': []}, 'FAIL_TO_FAIL': {'success': [], 'failure': []}, 'PASS_TO_FAIL': {'success': [], 'failure': []}}}}
+Result for astropy__astropy-6938: resolved: False
+2026-05-26 17:10:59,265 - INFO - Attempting to stop container sweb.eval.astropy__astropy-6938.codegraph-20260526...
+2026-05-26 17:11:14,494 - INFO - Attempting to remove container sweb.eval.astropy__astropy-6938.codegraph-20260526...
+2026-05-26 17:11:14,517 - INFO - Container sweb.eval.astropy__astropy-6938.codegraph-20260526 removed.

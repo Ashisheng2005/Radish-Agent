@@ -66,6 +66,15 @@ Completion criteria:
 - Report key changes after successful write, or clearly report blocker.
 """
 
+swebenchEvalPrompt = """
+SWE-bench repair constraints (override generic investigation endings):
+1. Minimal diff only: change the fewest lines needed to fix the failing tests; no refactors, reformatting, or unrelated edits.
+2. Preserve structure and indentation: never move a nested function, inner helper, or class method to module/class outer scope. `write_file` line ranges must stay inside the original indented block.
+3. NumPy in-place updates: when mutating an ndarray in place, use slice assignment (e.g. `arr[:] = arr.replace(...)`) not chained `.replace()` on a possible scalar view.
+4. Do not create diagnostic scripts, temp files, or run `python -c`; do not modify test files unless the issue explicitly requires it.
+5. Task succeeds only when tracked source files are modified (git diff non-empty); text-only conclusions fail.
+"""
+
 # 工具箱提示词 Toolsbox是一个字典，key是tool名称，alues是使用方法的描述，格式如下：
 # Toolbox = {'cmd': 'cmd工具可以执行命令行指令，参数是一个字符串，表示要执行的命令，例如：<tools>cmd('ls -la')</tools>'}
 toolboxPrompt = """\nShared tool policy:

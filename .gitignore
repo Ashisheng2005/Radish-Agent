@@ -10,7 +10,12 @@ __pycache__/
 *.ipynb
 *.bat
 .venv
+.venv-wsl
+.venv-research
+.cursor
+.claude
 .env
+vendor
 config.yaml
 @AutomationLog.txt
 wiki
@@ -18,3 +23,4 @@ vendor/*
 runtime_metrics.jsonl
 runtime_metrics_*.jsonl
 testtool.py
+research

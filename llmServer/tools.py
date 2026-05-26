@@ -183,6 +183,10 @@ def write_symbol(
     return_patch=True,
     conflict_mode="strict",
     encoding="utf-8",
+    skip_neighbors=None,
+    skip_justification="",
+    upstream_depth=1,
+    downstream_depth=1,
 ):
     print(f"llm write_symbol: {file_path} :: {symbol}")
     return _write_symbol(
@@ -194,6 +198,10 @@ def write_symbol(
         return_patch=return_patch,
         conflict_mode=conflict_mode,
         encoding=encoding,
+        skip_neighbors=skip_neighbors,
+        skip_justification=skip_justification,
+        upstream_depth=upstream_depth,
+        downstream_depth=downstream_depth,
     )
 
 
@@ -625,6 +633,14 @@ tools_json = [
                     "dry_run": {"type": "boolean", "description": "仅预览"},
                     "return_patch": {"type": "boolean", "description": "返回 patch"},
                     "conflict_mode": {"type": "string", "enum": ["strict", "soft"]},
+                    "skip_neighbors": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "可选，跳过预读的邻居 node_id 列表（需 justification）",
+                    },
+                    "skip_justification": {"type": "string", "description": "跳过邻居的理由"},
+                    "upstream_depth": {"type": "integer", "description": "Gate 上游深度，默认 1"},
+                    "downstream_depth": {"type": "integer", "description": "Gate 下游深度，默认 1"},
                 },
                 "required": ["file_path", "symbol", "edits"],
             },

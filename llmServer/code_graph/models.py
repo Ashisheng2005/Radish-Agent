@@ -108,6 +108,20 @@ class CodeEdge:
 
 
 @dataclass
+class ImportEdge:
+    """File-level import relationship."""
+    from_file: str
+    to_module: str
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {"from_file": self.from_file, "to_module": self.to_module}
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "ImportEdge":
+        return cls(from_file=str(data["from_file"]), to_module=str(data["to_module"]))
+
+
+@dataclass
 class CodeGraphIndex:
     version: str = "v1"
     project_path: str = ""
@@ -116,6 +130,8 @@ class CodeGraphIndex:
     parser_backend: str = "fallback"
     nodes: List[CodeNode] = field(default_factory=list)
     edges: List[CodeEdge] = field(default_factory=list)
+    import_edges: List[ImportEdge] = field(default_factory=list)
+    file_imports: Dict[str, List[str]] = field(default_factory=dict)
     by_file: Dict[str, List[str]] = field(default_factory=dict)
     by_qualified_name: Dict[str, List[str]] = field(default_factory=dict)
     by_basename: Dict[str, List[str]] = field(default_factory=dict)
@@ -145,6 +161,8 @@ class CodeGraphIndex:
             "parser_backend": self.parser_backend,
             "nodes": [n.to_dict() for n in self.nodes],
             "edges": [e.to_dict() for e in self.edges],
+            "import_edges": [e.to_dict() for e in self.import_edges],
+            "file_imports": self.file_imports,
             "by_file": self.by_file,
             "by_qualified_name": self.by_qualified_name,
             "by_basename": self.by_basename,
@@ -155,6 +173,7 @@ class CodeGraphIndex:
     def from_dict(cls, data: Dict[str, Any]) -> "CodeGraphIndex":
         nodes = [CodeNode.from_dict(x) for x in data.get("nodes", [])]
         edges = [CodeEdge.from_dict(x) for x in data.get("edges", [])]
+        import_edges = [ImportEdge.from_dict(x) for x in data.get("import_edges", [])]
         idx = cls(
             version=str(data.get("version", "v1")),
             project_path=str(data.get("project_path", "")),
@@ -163,6 +182,8 @@ class CodeGraphIndex:
             parser_backend=str(data.get("parser_backend", "fallback")),
             nodes=nodes,
             edges=edges,
+            import_edges=import_edges,
+            file_imports=dict(data.get("file_imports", {})),
             by_file=dict(data.get("by_file", {})),
             by_qualified_name=dict(data.get("by_qualified_name", {})),
             by_basename=dict(data.get("by_basename", {})),

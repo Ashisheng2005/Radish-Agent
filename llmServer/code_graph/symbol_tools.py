@@ -16,7 +16,7 @@ if str(_ROOT) not in sys.path:
 
 from RadishTools.src.FileExecutor.core.WriteFileV2 import write_file_v2_execute
 
-from .gate import SymbolReadGate
+from .gate import SymbolReadGate, neighbor_intent_summary
 from .models import CodeGraphIndex, CodeNode
 from .store import CodeGraphStore
 
@@ -584,9 +584,12 @@ def read_symbol(
     payload = _node_summary(node, source)
     neighbors = {"upstream": [], "downstream": []}
     neighbor_ids: Set[str] = set()
+    nb = {"upstream": [], "downstream": []}
 
     if include_neighbors:
         nb = _neighbor_ids(graph, node, upstream_depth, downstream_depth)
+        up_names = [n.qualified_name for n in nb["upstream"]]
+        down_names = [n.qualified_name for n in nb["downstream"]]
         for side in ("upstream", "downstream"):
             for n in nb[side]:
                 ns = _read_source(n) if include_source else ""
@@ -602,6 +605,10 @@ def read_symbol(
         "tool": "read_symbol",
         "symbol": payload,
         "neighbors": neighbors,
+        "neighbor_intent": neighbor_intent_summary(
+            [n.qualified_name for n in (nb["upstream"] if include_neighbors else [])],
+            [n.qualified_name for n in (nb["downstream"] if include_neighbors else [])],
+        ),
         "read_recorded": True,
         "required_before_write": [node.node_id] + sorted(neighbor_ids),
     }
@@ -653,6 +660,10 @@ def write_symbol(
     conflict_mode: str = "strict",
     encoding: str = "utf-8",
     skip_gate: bool = False,
+    skip_neighbors: Optional[List[str]] = None,
+    skip_justification: str = "",
+    upstream_depth: int = 1,
+    downstream_depth: int = 1,
 ) -> Dict[str, Any]:
     graph = get_graph()
     if graph is None:
@@ -685,9 +696,18 @@ def write_symbol(
                 "actual": node.body_hash,
             }
 
-    nb = _neighbor_ids(graph, node, 1, 1)
+    nb = _neighbor_ids(graph, node, upstream_depth, downstream_depth)
     upstream_ids = {n.node_id for n in nb["upstream"]}
     downstream_ids = {n.node_id for n in nb["downstream"]}
+
+    skip_set: Set[str] = set()
+    if skip_neighbors:
+        for sid in skip_neighbors:
+            if sid:
+                skip_set.add(str(sid))
+        if skip_set and skip_justification:
+            gate = SymbolReadGate.active()
+            gate.record_skip(skip_set, skip_justification)
 
     if not skip_gate:
         gate = SymbolReadGate.active()

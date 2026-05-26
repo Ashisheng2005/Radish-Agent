@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import ast
 import hashlib
 import os
 from typing import Dict, List, Optional, Set, Tuple
 
-from .models import CodeEdge, CodeGraphIndex, CodeNode, body_hash, make_node_id
+from .models import CodeEdge, CodeGraphIndex, CodeNode, ImportEdge, body_hash, make_node_id
 from .parser import CODE_EXTENSIONS, detect_language, extract_symbols
 from .store import CodeGraphStore
 
@@ -38,10 +39,14 @@ class CodeGraphIndexer:
         project_path: str,
         wiki_root: Optional[str] = None,
         ignore_dirs: Optional[Set[str]] = None,
+        include_prefixes: Optional[List[str]] = None,
     ):
         self.project_path = os.path.abspath(project_path)
         self.store = CodeGraphStore(self.project_path, wiki_root)
         self.ignore_dirs = set(ignore_dirs or []) | DEFAULT_IGNORE_DIRS
+        self.include_prefixes = [
+            p.replace("\\", "/").strip("/") for p in (include_prefixes or [])
+        ]
 
     def execute(self) -> CodeGraphIndex:
         files = self._collect_code_files()
@@ -83,6 +88,7 @@ class CodeGraphIndexer:
 
         edges = self._resolve_edges(nodes)
         self._apply_called_by(nodes, edges)
+        import_edges, file_imports = self._extract_import_edges(files)
 
         index = CodeGraphIndex(
             project_path=self.project_path,
@@ -90,6 +96,8 @@ class CodeGraphIndexer:
             parser_backend="+".join(sorted(backends)) or "none",
             nodes=nodes,
             edges=edges,
+            import_edges=import_edges,
+            file_imports=file_imports,
         )
         index.rebuild_lookup_indexes()
         self.store.save(index)
@@ -103,9 +111,51 @@ class CodeGraphIndexer:
                 _, ext = os.path.splitext(filename.lower())
                 if ext not in CODE_EXTENSIONS:
                     continue
-                results.append(os.path.join(root, filename))
+                abs_path = os.path.join(root, filename)
+                if self.include_prefixes:
+                    rel = os.path.relpath(abs_path, self.project_path).replace("\\", "/")
+                    if not any(rel.startswith(prefix) for prefix in self.include_prefixes):
+                        continue
+                results.append(abs_path)
         results.sort()
         return results
+
+    def _extract_import_edges(self, files: List[str]) -> Tuple[List[ImportEdge], Dict[str, List[str]]]:
+        import_edges: List[ImportEdge] = []
+        file_imports: Dict[str, List[str]] = {}
+        seen: Set[Tuple[str, str]] = set()
+
+        for abs_path in files:
+            if not abs_path.endswith(".py"):
+                continue
+            rel_path = os.path.relpath(abs_path, self.project_path).replace("\\", "/")
+            try:
+                with open(abs_path, "r", encoding="utf-8") as fp:
+                    source = fp.read()
+                tree = ast.parse(source)
+            except (OSError, SyntaxError):
+                continue
+
+            modules: List[str] = []
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    for alias in node.names:
+                        mod = alias.name.split(".")[0]
+                        modules.append(mod)
+                elif isinstance(node, ast.ImportFrom) and node.module:
+                    mod = node.module.split(".")[0]
+                    modules.append(mod)
+
+            unique = sorted(set(modules))
+            if unique:
+                file_imports[rel_path] = unique
+            for mod in unique:
+                key = (rel_path, mod)
+                if key not in seen:
+                    seen.add(key)
+                    import_edges.append(ImportEdge(from_file=rel_path, to_module=mod))
+
+        return import_edges, file_imports
 
     def _resolve_edges(self, nodes: List[CodeNode]) -> List[CodeEdge]:
         by_file: Dict[str, List[CodeNode]] = {}

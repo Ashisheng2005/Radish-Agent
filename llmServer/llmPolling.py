@@ -18,6 +18,7 @@ from promptTemplate import (
     toolboxPrompt,
     wikiPrompt,
     userTaskPrompt,
+    swebenchEvalPrompt,
     SESSION_SUMMARY_TAG,
 )
 
@@ -237,10 +238,13 @@ class Polling():
             system_info=meta["system_info"],
             language=meta["language"],
         )
+        mode_prompt = modePromptMap.get(mode, modePromptMap["ask"])
+        if getattr(self, "swebench_eval", False) and mode == "agent":
+            mode_prompt = mode_prompt + swebenchEvalPrompt
         return systemPrefixPrompt.format(
             common_prompt=formatted_common,
             task_mode=mode,
-            mode_prompt=modePromptMap.get(mode, modePromptMap["ask"]),
+            mode_prompt=mode_prompt,
             tools_prompt=toolboxPrompt.format(current_dir=meta["workdir"]),
         )
 
@@ -502,11 +506,18 @@ class Polling():
                 if int(tool_result.get("count", 0) or 0) > 0:
                     self._investigation_evidence["search_hit"] = True
         if self._empty_search_streak >= 3:
-            self._defer_tool_round_hint(
-                "已连续 3 次 search_symbols 无结果。请停止换词搜索。"
-                "改用: grep_code_batch(preset='find_config_loader'), read_file(yamlConfig.py), "
-                "list_module_importers('yamlConfig.py')。然后直接给出分析结论。"
-            )
+            if getattr(self, "swebench_eval", False):
+                self._defer_tool_round_hint(
+                    "已连续 3 次 search_symbols 无结果。停止换词搜索。"
+                    "改用 grep_code/grep_code_batch 或 read_file 定位源码，"
+                    "然后立即 write_file/write_symbol 提交最小修复；禁止只输出文字结论。"
+                )
+            else:
+                self._defer_tool_round_hint(
+                    "已连续 3 次 search_symbols 无结果。请停止换词搜索。"
+                    "改用: grep_code_batch(preset='find_config_loader'), read_file(yamlConfig.py), "
+                    "list_module_importers('yamlConfig.py')。然后直接给出分析结论。"
+                )
             self._empty_search_streak = 0
 
         if tool_name in {"grep_code", "grep_code_batch"} and isinstance(tool_result, dict) and tool_result.get("ok"):
@@ -530,11 +541,17 @@ class Polling():
             and (ev.get("read_small_file") or self._read_symbol_files)
         ):
             self._evidence_stop_injected = True
-            self._defer_tool_round_hint(
-                "调查证据已足够（符号命中 + 读取源码 + import/Config 引用）。"
-                "请直接撰写结论，勿再调用 grep/read 工具。"
-                "若 grep 有 warnings，勿称 Config 为死代码。"
-            )
+            if getattr(self, "swebench_eval", False):
+                self._defer_tool_round_hint(
+                    "调查证据已足够。必须立即用 write_file 或 write_symbol 修改已跟踪的源码文件；"
+                    "禁止继续 grep/read/cmd 或只输出文字结论。未写入 patch 则任务失败。"
+                )
+            else:
+                self._defer_tool_round_hint(
+                    "调查证据已足够（符号命中 + 读取源码 + import/Config 引用）。"
+                    "请直接撰写结论，勿再调用 grep/read 工具。"
+                    "若 grep 有 warnings，勿称 Config 为死代码。"
+                )
 
     def set_debug(self, enabled: bool):
         self.debug = bool(enabled)

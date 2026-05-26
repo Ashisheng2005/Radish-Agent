@@ -1,13 +1,13 @@
-"""符号读取门禁：记录会话内已读节点，供 write_symbol 校验。"""
+"""SymbolReadGate — session-scoped read-before-write enforcement with ASRG extensions."""
 
 from __future__ import annotations
 
 from threading import Lock
-from typing import Dict, Optional, Set
+from typing import Dict, Optional, Set, Tuple
 
 
 class SymbolReadGate:
-    """进程内单例门禁；Polling 会话可绑定 gate_id 隔离。"""
+    """Process-local gate; Polling sessions bind via gate_id."""
 
     _instances: Dict[str, "SymbolReadGate"] = {}
     _lock = Lock()
@@ -16,6 +16,7 @@ class SymbolReadGate:
         self.gate_id = gate_id
         self._read_nodes: Set[str] = set()
         self._read_neighbors: Dict[str, Set[str]] = {}
+        self._skipped_neighbors: Dict[str, str] = {}  # node_id -> justification
 
     @classmethod
     def get(cls, gate_id: str = "default") -> "SymbolReadGate":
@@ -40,13 +41,43 @@ class SymbolReadGate:
             self._read_neighbors[node_id] = nb
             self._read_nodes.update(nb)
 
+    def record_skip(self, node_ids: Set[str], justification: str) -> None:
+        for nid in node_ids:
+            if nid:
+                self._skipped_neighbors[nid] = justification
+
     def is_read(self, node_id: str) -> bool:
         return node_id in self._read_nodes
 
-    def required_for_write(self, target_id: str, upstream_ids: Set[str], downstream_ids: Set[str]) -> Set[str]:
+    def is_skipped(self, node_id: str) -> bool:
+        return node_id in self._skipped_neighbors
+
+    def required_for_write(
+        self,
+        target_id: str,
+        upstream_ids: Set[str],
+        downstream_ids: Set[str],
+    ) -> Set[str]:
         required = {target_id} | upstream_ids | downstream_ids
-        return {nid for nid in required if nid and not self.is_read(nid)}
+        return {
+            nid for nid in required
+            if nid and not self.is_read(nid) and not self.is_skipped(nid)
+        }
 
     def clear(self) -> None:
         self._read_nodes.clear()
         self._read_neighbors.clear()
+        self._skipped_neighbors.clear()
+
+
+def neighbor_intent_summary(
+    upstream_names: list,
+    downstream_names: list,
+) -> str:
+    """Zero-cost neighbor intent string for read_symbol responses."""
+    parts = []
+    if upstream_names:
+        parts.append(f"called_by: [{', '.join(upstream_names[:5])}]")
+    if downstream_names:
+        parts.append(f"calls: [{', '.join(downstream_names[:5])}]")
+    return "; ".join(parts) if parts else "no direct neighbors"
